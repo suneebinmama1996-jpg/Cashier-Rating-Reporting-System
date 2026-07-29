@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "ratings": {
+      "title": "RatingRecord",
+      "description": "Cashier evaluation records",
+      "properties": {
+        "orderNumber": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "counterId": { "type": "string" },
+        "counterName": { "type": "string" },
+        "cashierName": { "type": "string" },
+        "score": { "type": "number" },
+        "level": { "type": "string" }
+      },
+      "required": ["timestamp", "counterId", "score", "level"]
+    },
+    "counters": {
+      "title": "Counter",
+      "description": "Cashier counter configurations",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "cashierName": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["id", "name", "cashierName"]
+    },
+    "settings": {
+      "title": "SystemSettings",
+      "description": "System branding and configuration",
+      "properties": {
+        "logoUrl": { "type": "string" },
+        "orgName": { "type": "string" },
+        "themeColor": { "type": "string" },
+        "adminPin": { "type": "string" }
+      },
+      "required": ["orgName", "themeColor"]
+    }
+  }
+}

@@ -1,0 +1,240 @@
+import React, { useState, useEffect } from 'react';
+import { CustomerKiosk } from './components/CustomerKiosk';
+import { AdminDashboard } from './components/AdminDashboard';
+import { ShareLinksModal } from './components/ShareLinksModal';
+import { AdminPinModal } from './components/AdminPinModal';
+import { RatingRecord, Counter, SystemSettings } from './types';
+import {
+  getStoredRatings,
+  saveRatingRecord,
+  deleteRatingRecord,
+  getStoredCounters,
+  saveCounters,
+  getActiveCounterId,
+  setActiveCounterId,
+  resetRatingsToSample,
+  clearAllRatings,
+  getStoredSettings,
+  saveStoredSettings,
+  subscribeToConfig,
+  subscribeToRatings,
+  fetchRatingsFromFirestore,
+} from './utils/storage';
+
+export default function App() {
+  const [viewMode, setViewMode] = useState<'kiosk' | 'admin'>('kiosk');
+  const [ratings, setRatings] = useState<RatingRecord[]>([]);
+  const [counters, setCounters] = useState<Counter[]>([]);
+  const [activeCounterId, setLocalActiveCounterId] = useState<string>('');
+  const [settings, setSettings] = useState<SystemSettings>(getStoredSettings());
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  
+  // Filter for specific branch kiosk
+  const [branchFilter, setBranchFilter] = useState<string | null>(null);
+  const [counterFilter, setCounterFilter] = useState<string | null>(null);
+
+  // Sync hash with view mode
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.toLowerCase();
+      if (hash === '#admin') {
+        setViewMode('admin');
+      } else if (hash === '#kiosk' || hash === '') {
+        setViewMode('kiosk');
+      }
+    };
+
+    handleHashChange();
+
+    window.addEventListener('hashchange', handleHashChange);
+    
+    // Parse branch or counter from URL search params
+    try {
+      const searchStr = window.location.search || (window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '');
+      if (searchStr) {
+        const params = new URLSearchParams(searchStr);
+        const branchParam = params.get('branch');
+        const counterParam = params.get('counter');
+        
+        if (branchParam) setBranchFilter(branchParam.trim());
+        if (counterParam) setCounterFilter(counterParam.trim());
+      }
+    } catch {
+      // Ignore URL parse errors
+    }
+    
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const backToKiosk = () => {
+    setViewMode('kiosk');
+    window.location.hash = 'kiosk';
+  };
+
+  useEffect(() => {
+    // Initial local state load
+    setRatings(getStoredRatings());
+    const storedCounters = getStoredCounters();
+    setCounters(storedCounters);
+    const actId = getActiveCounterId();
+    if (storedCounters.some((c) => c.id === actId)) {
+      setLocalActiveCounterId(actId);
+    } else if (storedCounters.length > 0) {
+      setLocalActiveCounterId(storedCounters[0].id);
+      setActiveCounterId(storedCounters[0].id);
+    }
+
+    // Subscribe to Firestore Real-Time Cloud Updates (Config is always needed)
+    const unsubscribeConfig = subscribeToConfig(
+      (updatedCounters) => {
+        setCounters(updatedCounters);
+        setLocalActiveCounterId((prevActive) => {
+          if (updatedCounters.some((c) => c.id === prevActive)) return prevActive;
+          return updatedCounters[0]?.id || prevActive;
+        });
+      },
+      (updatedSettings) => setSettings(updatedSettings)
+    );
+    
+    let unsubscribeRatings: (() => void) | undefined;
+    
+    // Only subscribe to ratings if we are in admin mode to prevent Kiosk crashes 
+    // and quota exhaustion on concurrent kiosk screens
+    if (viewMode === 'admin') {
+      unsubscribeRatings = subscribeToRatings((updatedRatings) => setRatings(updatedRatings));
+    }
+
+    return () => {
+      unsubscribeConfig();
+      if (unsubscribeRatings) unsubscribeRatings();
+    };
+  }, [viewMode]);
+
+  const filteredCounters = branchFilter 
+    ? counters.filter(c => c.branchName === branchFilter)
+    : counterFilter
+      ? counters.filter(c => c.id === counterFilter)
+      : counters;
+
+  const filteredRatings = branchFilter
+    ? ratings.filter(r => r.branchName === branchFilter)
+    : counterFilter
+      ? ratings.filter(r => r.counterId === counterFilter)
+      : ratings;
+
+  const activeCounter =
+    filteredCounters.find((c) => c.id === activeCounterId) ||
+    filteredCounters[0] || 
+    (branchFilter || counterFilter ? null : counters.find((c) => c.id === activeCounterId)) ||
+    (branchFilter || counterFilter ? null : counters[0]) || {
+      id: counterFilter || 'c-fallback',
+      name: 'สาขา',
+      cashierName: 'พนักงานพนักงาน',
+      branchName: branchFilter || (counters.length > 0 ? counters[0].branchName : 'สาขาหลัก'),
+      isOnline: true,
+      isFallbackError: !!(branchFilter || counterFilter),
+    };
+
+  const handleSelectCounter = (id: string) => {
+    setLocalActiveCounterId(id);
+    setActiveCounterId(id);
+  };
+
+  const handleNewRatingSubmitted = async (newRatingData: Omit<RatingRecord, 'id' | 'timestamp'>) => {
+    const created = await saveRatingRecord(newRatingData);
+    setRatings((prev) => [created, ...prev]);
+    return created;
+  };
+
+  const handleSaveCounters = (updatedCounters: Counter[]) => {
+    let newFullCounters = updatedCounters;
+    if (branchFilter) {
+      // Keep other branches' counters and replace this branch's counters
+      const otherBranchesCounters = counters.filter(c => c.branchName !== branchFilter);
+      newFullCounters = [...otherBranchesCounters, ...updatedCounters];
+    } else if (counterFilter) {
+      // Keep other counters and replace this specific counter
+      const originalFilteredIds = filteredCounters.map(c => c.id);
+      const unchangedCounters = counters.filter(c => !originalFilteredIds.includes(c.id));
+      newFullCounters = [...unchangedCounters, ...updatedCounters];
+    }
+    setCounters(newFullCounters);
+    saveCounters(newFullCounters);
+  };
+
+  const handleSaveSettings = (updated: Partial<SystemSettings>) => {
+    const newSettings = saveStoredSettings(updated);
+    setSettings(newSettings);
+  };
+
+  const handleResetData = () => {
+    if (window.confirm('คุณต้องการล้างข้อมูลการประเมินเพื่อเริ่มต้นใหม่ใช่หรือไม่?')) {
+      const refreshed = resetRatingsToSample();
+      setRatings(refreshed);
+    }
+  };
+
+  const handleClearData = async () => {
+    if (window.confirm('คุณต้องการล้างข้อมูลการประเมินทั้งหมดในระบบใช่หรือไม่?')) {
+      await clearAllRatings();
+      setRatings([]);
+    }
+  };
+
+  const handleRefreshRatings = async () => {
+    const fetched = await fetchRatingsFromFirestore();
+    setRatings(fetched);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-100 font-sans antialiased text-slate-800 selection:bg-teal-500 selection:text-white">
+      {viewMode === 'kiosk' ? (
+        <CustomerKiosk
+          activeCounter={activeCounter}
+          counters={filteredCounters}
+          settings={settings}
+          onSelectCounter={handleSelectCounter}
+          onNewRatingSubmitted={handleNewRatingSubmitted}
+          onOpenAdmin={() => setIsPinModalOpen(true)}
+          onOpenShareModal={() => setIsShareModalOpen(true)}
+        />
+      ) : (
+        <AdminDashboard
+          ratings={filteredRatings}
+          counters={filteredCounters}
+          settings={settings}
+          branchFilter={branchFilter}
+          counterFilter={counterFilter}
+          onBackToKiosk={backToKiosk}
+          onSaveCounters={handleSaveCounters}
+          onSaveSettings={handleSaveSettings}
+          onOpenShareModal={() => setIsShareModalOpen(true)}
+          onResetData={handleResetData}
+          onClearData={handleClearData}
+          onRefreshRatings={handleRefreshRatings}
+        />
+      )}
+
+      {/* Admin PIN Modal */}
+      <AdminPinModal
+        isOpen={isPinModalOpen}
+        onClose={() => setIsPinModalOpen(false)}
+        adminPin={settings.adminPin || '1234'}
+        onSuccess={() => {
+          setIsPinModalOpen(false);
+          setViewMode('admin');
+          window.location.hash = 'admin';
+        }}
+      />
+
+      {/* Share Links Modal */}
+      <ShareLinksModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        settings={settings}
+        counters={counters}
+      />
+    </div>
+  );
+}

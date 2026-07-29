@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800">
+  <rect width="800" height="800" fill="none"/>
+  <!-- Bold Stylized Pink NUH Logo matching uploaded branding image -->
+  <g fill="#e6007e">
+    <!-- Left 'n' character -->
+    <path d="M 85,118 H 203 V 202 C 203,165 240,123 318,123 C 382,123 382,202 382,202 V 595 H 269 V 287 C 269,223 226,208 203,232 V 595 H 85 Z" />
+    <!-- Right 'u' character -->
+    <path d="M 416,202 H 533 V 500 C 533,565 577,580 600,556 V 202 H 715 V 678 H 597 V 595 C 597,632 560,674 482,674 C 416,674 416,595 416,595 Z" />
+  </g>
+  <!-- Thin white overlay structure forming the H letter in negative space -->
+  <g stroke="#ffffff" stroke-width="12" stroke-linecap="square">
+    <line x1="230" y1="225" x2="230" y2="575" />
+    <line x1="565" y1="225" x2="565" y2="575" />
+    <line x1="230" y1="400" x2="565" y2="400" />
+  </g>
+</svg>
