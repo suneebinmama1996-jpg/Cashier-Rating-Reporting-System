@@ -30,9 +30,8 @@ export default function App() {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   
-  // Filter for specific branch kiosk
-  const [branchFilter, setBranchFilter] = useState<string | null>(null);
-  const [counterFilter, setCounterFilter] = useState<string | null>(null);
+  // URL Auth Bypass Logic: If it's a specific branch link, we don't need PIN for admin view
+  const isBranchAdminLink = (branchFilter && branchFilter !== 'all') || counterFilter;
 
   // Sync hash with view mode
   useEffect(() => {
@@ -163,9 +162,14 @@ export default function App() {
     setActiveCounterId(id);
   };
 
-  const handleNewRatingSubmitted = async (newRatingData: Omit<RatingRecord, 'id' | 'timestamp'>) => {
+  const handleNewRatingSubmitted = async (newRatingData: RatingRecord) => {
     const created = await saveRatingRecord(newRatingData);
-    setRatings((prev) => [created, ...prev]);
+    // Local state is already updated via setRatings in subscribeToRatings
+    // but we can update it immediately for snappier UI if needed
+    setRatings((prev) => {
+      if (prev.some(r => r.id === created.id)) return prev;
+      return [created, ...prev];
+    });
     return created;
   };
 
@@ -218,7 +222,14 @@ export default function App() {
           settings={settings}
           onSelectCounter={handleSelectCounter}
           onNewRatingSubmitted={handleNewRatingSubmitted}
-          onOpenAdmin={() => setIsPinModalOpen(true)}
+          onOpenAdmin={() => {
+            if (isBranchAdminLink) {
+              setViewMode('admin');
+              window.location.hash = 'admin';
+            } else {
+              setIsPinModalOpen(true);
+            }
+          }}
           onOpenShareModal={() => setIsShareModalOpen(true)}
         />
       ) : (

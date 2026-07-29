@@ -109,21 +109,17 @@ export function getStoredRatings(): RatingRecord[] {
   }
 }
 
-export async function saveRatingRecord(newRecord: Omit<RatingRecord, 'id' | 'timestamp'>): Promise<RatingRecord> {
+export async function saveRatingRecord(created: RatingRecord): Promise<RatingRecord> {
   const current = getStoredRatings();
-  const created: RatingRecord = {
-    ...newRecord,
-    id: `rate_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-    timestamp: new Date().toISOString(),
-  };
   const updated = [created, ...current];
   localStorage.setItem(RATINGS_KEY, JSON.stringify(updated));
 
-  // Save to Firestore in background (fire-and-forget) to ensure Kiosk never hangs
-  const path = `ratings/${created.id}`;
-  setDoc(doc(db, 'ratings', created.id), created).catch(e => {
-    console.warn('Background sync failed:', e);
-  });
+  // Save to Firestore - Real-time sync
+  try {
+    await setDoc(doc(db, 'ratings', created.id), created);
+  } catch (e) {
+    console.error('Firestore save rating error:', e);
+  }
 
   return created;
 }

@@ -102,14 +102,16 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
 
     // Submit rating with Order Number
     onNewRatingSubmitted({
+      id: `r-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       counterId: activeCounter.id,
       counterName: activeCounter.name,
       cashierName: activeCounter.cashierName,
-      branchName: activeCounter.branchName,
+      branchName: activeCounter.branchName || activeCounter.name,
       orderNumber: currentOrder,
       score: option.score,
       level: option.level,
-    } as Omit<RatingRecord, 'id' | 'timestamp'>);
+      timestamp: new Date().toISOString(),
+    } as RatingRecord);
 
     // Reset order number input for next customer
     setOrderNumber('');
