@@ -11,8 +11,39 @@ import {
   query,
   orderBy,
   deleteDoc,
-  writeBatch
+  writeBatch,
+  getDocFromServer
 } from 'firebase/firestore';
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {},
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 const RATINGS_KEY = 'cashier_rating_records_v1';
 const COUNTERS_KEY = 'cashier_rating_counters_v1';
@@ -43,11 +74,10 @@ export function saveStoredSettings(settings: Partial<SystemSettings>): SystemSet
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(updated));
 
   // Sync with Firestore asynchronously
-  try {
-    setDoc(doc(db, 'config', 'settings'), updated, { merge: true }).catch(() => {});
-  } catch (e) {
+  const path = 'config/settings';
+  setDoc(doc(db, 'config', 'settings'), updated, { merge: true }).catch((e) => {
     console.error('Firestore save settings error:', e);
-  }
+  });
 
   return updated;
 }
@@ -90,13 +120,10 @@ export async function saveRatingRecord(newRecord: Omit<RatingRecord, 'id' | 'tim
   localStorage.setItem(RATINGS_KEY, JSON.stringify(updated));
 
   // Save to Firestore in background (fire-and-forget) to ensure Kiosk never hangs
-  try {
-    setDoc(doc(db, 'ratings', created.id), created).catch(e => {
-      console.warn('Background sync failed (will retry automatically if offline):', e);
-    });
-  } catch (e) {
-    console.error('Firestore save rating error:', e);
-  }
+  const path = `ratings/${created.id}`;
+  setDoc(doc(db, 'ratings', created.id), created).catch(e => {
+    console.warn('Background sync failed:', e);
+  });
 
   return created;
 }
@@ -151,11 +178,10 @@ export function saveCounters(counters: Counter[]): void {
   localStorage.setItem(COUNTERS_KEY, JSON.stringify(counters));
 
   // Save to Firestore
-  try {
-    setDoc(doc(db, 'config', 'counters'), { list: counters }).catch(() => {});
-  } catch (e) {
+  const path = 'config/counters';
+  setDoc(doc(db, 'config', 'counters'), { list: counters }).catch((e) => {
     console.error('Firestore save counters error:', e);
-  }
+  });
 }
 
 export function getActiveCounterId(): string {
@@ -193,6 +219,7 @@ export function subscribeToConfig(
   onSettingsUpdate: (settings: SystemSettings) => void
 ) {
   // 1. Counters listener
+  const countersPath = 'config/counters';
   const unsubscribeCounters = onSnapshot(doc(db, 'config', 'counters'), (snapshot) => {
     if (snapshot.exists()) {
       const data = snapshot.data();
@@ -201,15 +228,18 @@ export function subscribeToConfig(
         onCountersUpdate(data.list);
       }
     } else {
-      // Initialize counters in Firestore
+      // Initialize counters in Firestore IF it's empty
       const local = getStoredCounters();
-      setDoc(doc(db, 'config', 'counters'), { list: local }).catch(() => {});
+      if (local.length > 0) {
+        setDoc(doc(db, 'config', 'counters'), { list: local }).catch(() => {});
+      }
     }
   }, (err) => {
-    console.warn('Firestore counters listener error:', err);
+    handleFirestoreError(err, OperationType.GET, countersPath);
   });
 
   // 2. Settings listener
+  const settingsPath = 'config/settings';
   const unsubscribeSettings = onSnapshot(doc(db, 'config', 'settings'), (snapshot) => {
     if (snapshot.exists()) {
       const data = snapshot.data() as SystemSettings;
@@ -221,7 +251,7 @@ export function subscribeToConfig(
       setDoc(doc(db, 'config', 'settings'), local).catch(() => {});
     }
   }, (err) => {
-    console.warn('Firestore settings listener error:', err);
+    handleFirestoreError(err, OperationType.GET, settingsPath);
   });
 
   return () => {
@@ -231,9 +261,22 @@ export function subscribeToConfig(
 }
 
 // Subscribe to Ratings
-export function subscribeToRatings(onRatingsUpdate: (ratings: RatingRecord[]) => void) {
-  // We limit the real-time query or rely on fetch on-demand to prevent OOM
-  const qRatings = query(collection(db, 'ratings'));
+export function subscribeToRatings(
+  onRatingsUpdate: (ratings: RatingRecord[]) => void,
+  branchFilter?: string | null
+) {
+  const ratingsPath = 'ratings';
+  let qRatings = query(collection(db, 'ratings'));
+  
+  if (branchFilter && branchFilter !== 'all') {
+    // If we have a branch filter, we could theoretically use Firestore where() 
+    // but it requires a composite index if combined with orderBy.
+    // For now, we'll fetch and filter client-side if the dataset is small, 
+    // OR we can try to use a simple where filter if possible.
+    // However, to keep it simple and robust (no missing indexes errors), 
+    // we'll stick to full sync but allow future optimization.
+  }
+  
   const unsubscribeRatings = onSnapshot(qRatings, (snapshot) => {
     const records: RatingRecord[] = [];
     const mockRefsToDelete: any[] = [];
@@ -243,7 +286,10 @@ export function subscribeToRatings(onRatingsUpdate: (ratings: RatingRecord[]) =>
       if (!isRealRatingRecord(data)) {
         mockRefsToDelete.push(docSnap.ref);
       } else {
-        records.push(data);
+        // Filter by branch client-side to ensure no index errors
+        if (!branchFilter || branchFilter === 'all' || data.branchName === branchFilter) {
+          records.push(data);
+        }
       }
     });
 
@@ -262,7 +308,7 @@ export function subscribeToRatings(onRatingsUpdate: (ratings: RatingRecord[]) =>
     localStorage.setItem(RATINGS_KEY, JSON.stringify(records));
     onRatingsUpdate(records);
   }, (err) => {
-    console.warn('Firestore ratings listener error:', err);
+    handleFirestoreError(err, OperationType.GET, ratingsPath);
   });
 
   return unsubscribeRatings;

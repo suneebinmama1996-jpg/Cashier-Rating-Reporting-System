@@ -47,24 +47,6 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleAddBranch = () => {
-    if (!newBranchInput.trim()) return;
-    if (branches.includes(newBranchInput.trim())) {
-      alert('มีชื่อสาขานี้อยู่แล้ว');
-      return;
-    }
-    setBranches([...branches, newBranchInput.trim()]);
-    setNewBranchInput('');
-  };
-
-  const handleRemoveBranch = (bName: string) => {
-    if (branches.length <= 1) {
-      alert('ต้องมีอย่างน้อย 1 สาขาในระบบ');
-      return;
-    }
-    setBranches(branches.filter((b) => b !== bName));
-  };
-
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {

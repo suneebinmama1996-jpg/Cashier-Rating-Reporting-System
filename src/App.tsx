@@ -73,11 +73,12 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Initial local state load
+    // 1. Initial local state load
     setRatings(getStoredRatings());
     const storedCounters = getStoredCounters();
     setCounters(storedCounters);
     const actId = getActiveCounterId();
+    
     if (storedCounters.some((c) => c.id === actId)) {
       setLocalActiveCounterId(actId);
     } else if (storedCounters.length > 0) {
@@ -85,7 +86,7 @@ export default function App() {
       setActiveCounterId(storedCounters[0].id);
     }
 
-    // Subscribe to Firestore Real-Time Cloud Updates (Config is always needed)
+    // 2. Subscribe to Config (Always active regardless of viewMode)
     const unsubscribeConfig = subscribeToConfig(
       (updatedCounters) => {
         setCounters(updatedCounters);
@@ -96,17 +97,20 @@ export default function App() {
       },
       (updatedSettings) => setSettings(updatedSettings)
     );
-    
+
+    return () => unsubscribeConfig();
+  }, []);
+
+  useEffect(() => {
     let unsubscribeRatings: (() => void) | undefined;
     
     // Only subscribe to ratings if we are in admin mode to prevent Kiosk crashes 
     // and quota exhaustion on concurrent kiosk screens
     if (viewMode === 'admin') {
-      unsubscribeRatings = subscribeToRatings((updatedRatings) => setRatings(updatedRatings));
+      unsubscribeRatings = subscribeToRatings((updatedRatings) => setRatings(updatedRatings), branchFilter);
     }
 
     return () => {
-      unsubscribeConfig();
       if (unsubscribeRatings) unsubscribeRatings();
     };
   }, [viewMode]);

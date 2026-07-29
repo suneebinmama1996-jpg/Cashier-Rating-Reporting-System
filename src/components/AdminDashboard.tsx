@@ -8,6 +8,7 @@ import { OrderReconciliation } from './OrderReconciliation';
 import { CounterManagementModal } from './CounterManagementModal';
 import { SystemSettingsModal } from './SystemSettingsModal';
 import { THEMES } from '../constants/theme';
+import { useFirestoreStatus } from '../hooks/useFirestoreStatus';
 import {
   BarChart2,
   Calendar,
@@ -22,6 +23,9 @@ import {
   LogOut,
   Lock,
   RefreshCw,
+  Wifi,
+  WifiOff,
+  CloudCheck,
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -80,6 +84,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return counters.filter((c) => c.branchName === selectedBranch);
   }, [counters, selectedBranch]);
 
+  const { isOnline, lastSync } = useFirestoreStatus();
+
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-800 pb-12">
       {/* Top Admin Header */}
@@ -120,6 +126,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           {/* Actions */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Sync Status */}
+            <div 
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border ${isOnline ? 'bg-emerald-900/40 border-emerald-500/30 text-emerald-400' : 'bg-rose-900/40 border-rose-500/30 text-rose-400'}`}
+              title={isOnline ? `เชื่อมต่อระบบคลาวด์เรียลไทม์ (ซิงค์ล่าสุด: ${lastSync?.toLocaleTimeString()})` : 'ไม่สามารถเชื่อมต่อระบบคลาวด์ได้ กำลังพยายามใหม่...'}
+            >
+              {isOnline ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
+              <span className="text-[10px] font-bold uppercase tracking-wider hidden sm:inline">
+                {isOnline ? 'Real-time' : 'Offline'}
+              </span>
+            </div>
+
             {/* Global Filter Selector */}
             {counterFilter ? (
               <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border bg-fuchsia-900/40 border-fuchsia-500/30">

@@ -4,26 +4,38 @@
       "title": "RatingRecord",
       "description": "Cashier evaluation records",
       "properties": {
+        "id": { "type": "string" },
         "orderNumber": { "type": "string" },
         "timestamp": { "type": "string" },
         "counterId": { "type": "string" },
         "counterName": { "type": "string" },
         "cashierName": { "type": "string" },
+        "branchName": { "type": "string" },
         "score": { "type": "number" },
         "level": { "type": "string" }
       },
-      "required": ["timestamp", "counterId", "score", "level"]
+      "required": ["id", "timestamp", "counterId", "score", "level"]
     },
     "counters": {
       "title": "Counter",
       "description": "Cashier counter configurations",
       "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "cashierName": { "type": "string" },
-        "isActive": { "type": "boolean" }
+        "list": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "cashierName": { "type": "string" },
+              "branchName": { "type": "string" },
+              "isOnline": { "type": "boolean" }
+            },
+            "required": ["id", "name", "cashierName", "branchName"]
+          }
+        }
       },
-      "required": ["id", "name", "cashierName"]
+      "required": ["list"]
     },
     "settings": {
       "title": "SystemSettings",
@@ -35,6 +47,20 @@
         "adminPin": { "type": "string" }
       },
       "required": ["orgName", "themeColor"]
+    }
+  },
+  "firestore": {
+    "/ratings/{ratingId}": {
+      "schema": "ratings",
+      "description": "Collection of all cashier ratings"
+    },
+    "/config/counters": {
+      "schema": "counters",
+      "description": "Counter configuration list"
+    },
+    "/config/settings": {
+      "schema": "settings",
+      "description": "Global system settings"
     }
   }
 }
