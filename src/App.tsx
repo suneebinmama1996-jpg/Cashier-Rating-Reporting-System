@@ -112,7 +112,9 @@ export default function App() {
   }, [viewMode]);
 
   const filteredCounters = branchFilter 
-    ? counters.filter(c => c.branchName === branchFilter)
+    ? (counters.filter(c => c.branchName === branchFilter).length > 0
+        ? counters.filter(c => c.branchName === branchFilter)
+        : [{ id: `b-url-${branchFilter}`, name: branchFilter, cashierName: '-', branchName: branchFilter, isOnline: true }])
     : counterFilter
       ? counters.filter(c => c.id === counterFilter)
       : counters;
@@ -126,14 +128,30 @@ export default function App() {
   const activeCounter =
     filteredCounters.find((c) => c.id === activeCounterId) ||
     filteredCounters[0] || 
-    (branchFilter || counterFilter ? null : counters.find((c) => c.id === activeCounterId)) ||
-    (branchFilter || counterFilter ? null : counters[0]) || {
-      id: counterFilter || 'c-fallback',
+    (branchFilter ? {
+      id: `b-url-${branchFilter}`,
+      name: branchFilter,
+      cashierName: '-',
+      branchName: branchFilter,
+      isOnline: true,
+      isFallbackError: false,
+    } : null) ||
+    (counterFilter ? {
+      id: counterFilter,
+      name: `จุดบริการ (${counterFilter})`,
+      cashierName: '-',
+      branchName: 'สาขาหลัก',
+      isOnline: true,
+      isFallbackError: false,
+    } : null) ||
+    counters.find((c) => c.id === activeCounterId) ||
+    counters[0] || {
+      id: 'c-fallback',
       name: 'สาขา',
-      cashierName: 'พนักงานพนักงาน',
+      cashierName: '-',
       branchName: branchFilter || (counters.length > 0 ? counters[0].branchName : 'สาขาหลัก'),
       isOnline: true,
-      isFallbackError: !!(branchFilter || counterFilter),
+      isFallbackError: false,
     };
 
   const handleSelectCounter = (id: string) => {

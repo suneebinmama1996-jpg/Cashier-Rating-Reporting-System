@@ -11,12 +11,11 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
-    // เพิ่มการอนุญาต Host สำหรับ Vite preview Mode
-    preview: {
-      allowedHosts: true, // ปลดล็อกให้ทุก Host (รวมถึง Render URL) เข้าถึงได้
-    },
     server: {
+      // HMR is disabled in AI Studio via DISABLE_HMR env var.
+      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
+      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
   };
