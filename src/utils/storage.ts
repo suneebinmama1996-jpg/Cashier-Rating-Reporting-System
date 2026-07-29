@@ -42,7 +42,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  // Don't throw here to avoid crashing the whole React app on background sync errors
 }
 
 const RATINGS_KEY = 'cashier_rating_records_v1';
@@ -92,6 +92,7 @@ const THAI_MONTHS_FULL = [
 export function isRealRatingRecord(r: any): boolean {
   if (!r || typeof r !== 'object') return false;
   if (!r.id || typeof r.id !== 'string') return false;
+  if (!r.timestamp || typeof r.timestamp !== 'string') return false;
   // Filter out any legacy mock records starting with 'rec-'
   if (r.id.startsWith('rec-')) return false;
   return true;

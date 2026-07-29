@@ -25,7 +25,6 @@ import {
   RefreshCw,
   Wifi,
   WifiOff,
-  CloudCheck,
 } from 'lucide-react';
 
 interface AdminDashboardProps {

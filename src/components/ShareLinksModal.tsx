@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Share2, Copy, Check, ExternalLink, X, Smartphone, ShieldCheck, Link2 } from 'lucide-react';
+import { Share2, Copy, Check, ExternalLink, X, Smartphone, ShieldCheck, Link2, Info } from 'lucide-react';
 import { SystemSettings, Counter } from '../types';
 
 interface ShareLinksModalProps {

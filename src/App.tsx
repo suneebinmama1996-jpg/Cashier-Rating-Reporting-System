@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { CustomerKiosk } from './components/CustomerKiosk';
 import { AdminDashboard } from './components/AdminDashboard';
 import { ShareLinksModal } from './components/ShareLinksModal';
@@ -22,6 +22,27 @@ import {
 } from './utils/storage';
 
 export default function App() {
+  // 1. Initial State from URL
+  const getInitialFilters = () => {
+    try {
+      const searchStr = window.location.search || (window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '');
+      if (searchStr) {
+        const params = new URLSearchParams(searchStr);
+        return {
+          branch: params.get('branch')?.trim() || null,
+          counter: params.get('counter')?.trim() || null
+        };
+      }
+    } catch (e) {
+      console.error('URL Parse error:', e);
+    }
+    return { branch: null, counter: null };
+  };
+
+  const initialFilters = getInitialFilters();
+  const [branchFilter, setBranchFilter] = useState<string | null>(initialFilters.branch);
+  const [counterFilter, setCounterFilter] = useState<string | null>(initialFilters.counter);
+  
   const [viewMode, setViewMode] = useState<'kiosk' | 'admin'>('kiosk');
   const [ratings, setRatings] = useState<RatingRecord[]>([]);
   const [counters, setCounters] = useState<Counter[]>([]);
@@ -30,39 +51,22 @@ export default function App() {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   
-  // URL Auth Bypass Logic: If it's a specific branch link, we don't need PIN for admin view
+  // URL Auth Bypass Logic
   const isBranchAdminLink = (branchFilter && branchFilter !== 'all') || counterFilter;
 
   // Sync hash with view mode
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.toLowerCase();
-      if (hash === '#admin') {
+      if (hash.startsWith('#admin')) {
         setViewMode('admin');
-      } else if (hash === '#kiosk' || hash === '') {
+      } else {
         setViewMode('kiosk');
       }
     };
 
     handleHashChange();
-
     window.addEventListener('hashchange', handleHashChange);
-    
-    // Parse branch or counter from URL search params
-    try {
-      const searchStr = window.location.search || (window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '');
-      if (searchStr) {
-        const params = new URLSearchParams(searchStr);
-        const branchParam = params.get('branch');
-        const counterParam = params.get('counter');
-        
-        if (branchParam) setBranchFilter(branchParam.trim());
-        if (counterParam) setCounterFilter(counterParam.trim());
-      }
-    } catch {
-      // Ignore URL parse errors
-    }
-    
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
@@ -114,48 +118,40 @@ export default function App() {
     };
   }, [viewMode]);
 
-  const filteredCounters = branchFilter 
-    ? (counters.filter(c => c.branchName === branchFilter).length > 0
-        ? counters.filter(c => c.branchName === branchFilter)
-        : [{ id: `b-url-${branchFilter}`, name: branchFilter, cashierName: '-', branchName: branchFilter, isOnline: true }])
-    : counterFilter
-      ? counters.filter(c => c.id === counterFilter)
-      : counters;
+  // 3. Computed Data with safety checks
+  const filteredCounters = useMemo(() => {
+    if (!counters) return [];
+    if (branchFilter) {
+      const branchC = counters.filter(c => c.branchName === branchFilter);
+      if (branchC.length > 0) return branchC;
+      // Fallback for branch URL even if no counters exist yet
+      return [{ id: `b-url-${branchFilter}`, name: branchFilter, cashierName: '-', branchName: branchFilter, isOnline: true }];
+    }
+    if (counterFilter) return counters.filter(c => c.id === counterFilter);
+    return counters;
+  }, [counters, branchFilter, counterFilter]);
 
-  const filteredRatings = branchFilter
-    ? ratings.filter(r => r.branchName === branchFilter)
-    : counterFilter
-      ? ratings.filter(r => r.counterId === counterFilter)
-      : ratings;
+  const filteredRatings = useMemo(() => {
+    if (!ratings) return [];
+    if (branchFilter) return ratings.filter(r => r.branchName === branchFilter);
+    if (counterFilter) return ratings.filter(r => r.counterId === counterFilter);
+    return ratings;
+  }, [ratings, branchFilter, counterFilter]);
 
-  const activeCounter =
-    filteredCounters.find((c) => c.id === activeCounterId) ||
-    filteredCounters[0] || 
-    (branchFilter ? {
-      id: `b-url-${branchFilter}`,
-      name: branchFilter,
-      cashierName: '-',
-      branchName: branchFilter,
-      isOnline: true,
-      isFallbackError: false,
-    } : null) ||
-    (counterFilter ? {
-      id: counterFilter,
-      name: `จุดบริการ (${counterFilter})`,
-      cashierName: '-',
-      branchName: 'สาขาหลัก',
-      isOnline: true,
-      isFallbackError: false,
-    } : null) ||
-    counters.find((c) => c.id === activeCounterId) ||
-    counters[0] || {
-      id: 'c-fallback',
-      name: 'สาขา',
-      cashierName: '-',
-      branchName: branchFilter || (counters.length > 0 ? counters[0].branchName : 'สาขาหลัก'),
-      isOnline: true,
-      isFallbackError: false,
-    };
+  const activeCounter = useMemo(() => {
+    if (filteredCounters.length === 0) {
+      return {
+        id: 'c-loading',
+        name: branchFilter || 'กำลังโหลด...',
+        cashierName: '-',
+        branchName: branchFilter || '...',
+        isOnline: true,
+        isFallbackError: true
+      };
+    }
+    const found = filteredCounters.find((c) => c.id === activeCounterId);
+    return found || filteredCounters[0];
+  }, [filteredCounters, activeCounterId, branchFilter]);
 
   const handleSelectCounter = (id: string) => {
     setLocalActiveCounterId(id);
