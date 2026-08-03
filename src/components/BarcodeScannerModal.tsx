@@ -43,23 +43,22 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             Html5QrcodeSupportedFormats.UPC_A,
             Html5QrcodeSupportedFormats.UPC_E,
             Html5QrcodeSupportedFormats.ITF
-          ]
+          ],
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true
+          }
         });
         scannerRef.current = scanner;
 
         // Custom QR Box function to make it wider for 1D barcodes
         const qrboxFunction = (viewfinderWidth: number, viewfinderHeight: number) => {
-          const minEdgePercentage = 0.7; 
-          const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
-          const qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
-          return {
-            width: Math.min(viewfinderWidth - 40, 400),
-            height: 160
-          };
+          const width = Math.min(viewfinderWidth - 40, 450);
+          const height = Math.min(viewfinderHeight - 40, 200);
+          return { width, height };
         };
 
         const config = {
-          fps: 20, // Faster processing
+          fps: 30, // Maximize performance
           qrbox: qrboxFunction,
           aspectRatio: 1.0,
           disableFlip: false,
@@ -69,6 +68,22 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           { facingMode: "environment" },
           config,
           (decodedText) => {
+            // Play success beep
+            try {
+              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+              const oscillator = audioCtx.createOscillator();
+              const gainNode = audioCtx.createGain();
+              oscillator.connect(gainNode);
+              gainNode.connect(audioCtx.destination);
+              oscillator.type = 'sine';
+              oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+              gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+              oscillator.start();
+              oscillator.stop(audioCtx.currentTime + 0.1);
+            } catch (e) {
+              console.warn("Audio feedback failed", e);
+            }
+
             onScanSuccess(decodedText);
             onClose();
           },
