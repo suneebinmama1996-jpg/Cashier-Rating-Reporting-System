@@ -1,8 +1,33 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    // Default deny
     match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Ratings collection
+    match /ratings/{ratingId} {
+      allow read, create: if true;
+      allow update, delete: if true; // Keeping these allowed as requested in earlier turns for admin cleaning
+    }
+
+    // Config collection
+    match /config/{configId} {
       allow read, write: if true;
+    }
+
+    // Reconciliations collection (Immutable Logs)
+    match /reconciliations/{recId} {
+      allow read: if true;
+      allow create: if isValidId(recId);
+      // STRICT: 100% No update or delete allowed as per user request
+      allow update, delete: if false;
     }
   }
 }

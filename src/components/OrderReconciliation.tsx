@@ -196,11 +196,8 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
 
       const rawTime = timeColIdx !== -1 ? row[timeColIdx] : undefined;
       const orderTime = formatExcelDate(rawTime);
-      const key = orderNum.toUpperCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        records.push({ orderNumber: orderNum, orderTime });
-      }
+      
+      records.push({ orderNumber: orderNum, orderTime });
     }
 
     setPosRecords(records);
@@ -217,11 +214,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
       const orderNum = parts[0];
       const orderTime = formatExcelDate(parts[1]);
       if (orderNum) {
-        const key = orderNum.toUpperCase();
-        if (!seen.has(key)) {
-          seen.add(key);
-          records.push({ orderNumber: orderNum, orderTime });
-        }
+        records.push({ orderNumber: orderNum, orderTime });
       }
     });
 
@@ -347,21 +340,31 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
   const tableRows = useMemo(() => {
     if (posOrdersList.length === 0) return [];
 
+    // Calculate duplicate frequency map
+    const frequencyMap = new Map<string, number>();
+    posOrdersList.forEach(num => {
+      const key = num.toUpperCase();
+      frequencyMap.set(key, (frequencyMap.get(key) || 0) + 1);
+    });
+
     let rows: {
       orderNumber: string;
       status: 'MATCHED' | 'MISSING';
       rating?: RatingRecord;
       posTime?: string;
+      isDuplicate?: boolean;
     }[] = [];
 
     reconciliationData.matched.forEach((m) => {
       const posTime = posOrderTimeMap.get(m.orderNumber.toUpperCase());
-      rows.push({ orderNumber: m.orderNumber, status: 'MATCHED', rating: m.rating, posTime });
+      const isDuplicate = (frequencyMap.get(m.orderNumber.toUpperCase()) || 0) > 1;
+      rows.push({ orderNumber: m.orderNumber, status: 'MATCHED', rating: m.rating, posTime, isDuplicate });
     });
 
     reconciliationData.missing.forEach((m) => {
       const posTime = posOrderTimeMap.get(m.orderNumber.toUpperCase());
-      rows.push({ orderNumber: m.orderNumber, status: 'MISSING', posTime });
+      const isDuplicate = (frequencyMap.get(m.orderNumber.toUpperCase()) || 0) > 1;
+      rows.push({ orderNumber: m.orderNumber, status: 'MISSING', posTime, isDuplicate });
     });
 
     // Filter by tab
@@ -800,12 +803,26 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
                         <tr
                           key={row.orderNumber + idx}
                           className={`hover:bg-slate-700/40 transition ${
-                            row.status === 'MISSING' ? 'bg-rose-950/20' : ''
+                            row.isDuplicate 
+                              ? 'bg-rose-900/40 border-l-4 border-rose-500' 
+                              : row.status === 'MISSING' 
+                                ? 'bg-rose-950/20' 
+                                : ''
                           }`}
                         >
                           <td className="py-3 px-4 text-slate-500">{idx + 1}</td>
-                          <td className="py-3 px-4 font-mono font-bold text-white">
-                            {row.orderNumber}
+                          <td className="py-3 px-4">
+                            <div className="flex items-center space-x-2">
+                              <span className={`font-mono font-bold ${row.isDuplicate ? 'text-rose-200' : 'text-white'}`}>
+                                {row.orderNumber}
+                              </span>
+                              {row.isDuplicate && (
+                                <span className="bg-rose-500 text-white text-[9px] px-1.5 py-0.5 rounded flex items-center space-x-1 font-bold animate-pulse">
+                                  <AlertTriangle className="w-2.5 h-2.5" />
+                                  <span>ซ้ำ (DUPLICATE)</span>
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3 px-4">
                             {row.posTime ? (
