@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { RatingRecord, Counter, SystemSettings } from '../types';
+import { RatingRecord, Counter, SystemSettings, POSReconciliation } from '../types';
 import { DailyReportGraph } from './DailyReportGraph';
 import { MonthlyReportGraph } from './MonthlyReportGraph';
 import { CounterReport } from './CounterReport';
@@ -29,6 +29,7 @@ import {
 
 interface AdminDashboardProps {
   ratings: RatingRecord[];
+  reconciliations: POSReconciliation[];
   counters: Counter[];
   settings: SystemSettings;
   onBackToKiosk: () => void;
@@ -44,6 +45,7 @@ interface AdminDashboardProps {
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   ratings,
+  reconciliations,
   counters,
   settings,
   branchFilter,
@@ -305,6 +307,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {activeTab === 'reconcile' && (
           <OrderReconciliation
             ratings={filteredRatings}
+            reconciliations={reconciliations}
             counters={counters}
             settings={settings}
           />

@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { RatingRecord, Counter, RatingLevel } from '../types';
 import { formatThaiDate, exportRatingsToCSV, deleteRatingRecord } from '../utils/storage';
 import { RATING_OPTIONS } from '../constants/ratingOptions';
-import { Download, Search, Filter, RefreshCw, Trash2, FileSpreadsheet, X } from 'lucide-react';
+import { Download, Search, Filter, RefreshCw, Trash2, FileSpreadsheet, X, Clock } from 'lucide-react';
 
 interface RawDataLogProps {
   ratings: RatingRecord[];
@@ -20,6 +20,8 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [filterLevel, setFilterLevel] = useState<string>('all');
   const [filterCounter, setFilterCounter] = useState<string>('all');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
 
@@ -31,9 +33,14 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
         (r.orderNumber && r.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchLevel = filterLevel === 'all' || r.level === filterLevel;
       const matchCounter = filterCounter === 'all' || r.counterId === filterCounter;
-      return matchSearch && matchLevel && matchCounter;
+      
+      const rDate = r.timestamp.split('T')[0];
+      const matchStartDate = !startDate || rDate >= startDate;
+      const matchEndDate = !endDate || rDate <= endDate;
+
+      return matchSearch && matchLevel && matchCounter && matchStartDate && matchEndDate;
     });
-  }, [ratings, searchTerm, filterLevel, filterCounter]);
+  }, [ratings, searchTerm, filterLevel, filterCounter, startDate, endDate]);
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
   const paginated = useMemo(() => {
@@ -101,6 +108,42 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
               </option>
             ))}
           </select>
+
+          {/* Date Filter */}
+          <div className="flex items-center space-x-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="bg-transparent text-[11px] font-bold text-slate-700 focus:outline-none"
+            />
+            <span className="text-slate-400">ถึง</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="bg-transparent text-[11px] font-bold text-slate-700 focus:outline-none"
+            />
+            {(startDate || endDate) && (
+              <button 
+                onClick={() => {
+                  setStartDate('');
+                  setEndDate('');
+                  setCurrentPage(1);
+                }}
+                className="text-rose-500 hover:text-rose-600 ml-1"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Buttons: Export & Data Reset */}

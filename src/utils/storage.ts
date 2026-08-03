@@ -1,4 +1,4 @@
-import { RatingRecord, Counter, DailyStats, MonthlyStats, HourlyStats, SystemSettings } from '../types';
+import { RatingRecord, Counter, DailyStats, MonthlyStats, HourlyStats, SystemSettings, POSReconciliation } from '../types';
 import { INITIAL_COUNTERS, DEFAULT_BRANCHES } from '../constants/ratingOptions';
 import { generateInitialRatings } from '../data/mockData';
 import { db } from '../lib/firebase';
@@ -46,6 +46,45 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 }
 
 const RATINGS_KEY = 'cashier_rating_records_v1';
+const RECONCILIATIONS_KEY = 'cashier_rating_reconciliations_v1';
+
+export function getStoredReconciliations(): POSReconciliation[] {
+  if (typeof window === 'undefined') return [];
+  const stored = localStorage.getItem(RECONCILIATIONS_KEY);
+  if (!stored) return [];
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return [];
+  }
+}
+
+export async function saveReconciliationRecord(record: POSReconciliation): Promise<POSReconciliation> {
+  const current = getStoredReconciliations();
+  const updated = [record, ...current];
+  localStorage.setItem(RECONCILIATIONS_KEY, JSON.stringify(updated));
+
+  try {
+    await setDoc(doc(db, 'reconciliations', record.id), record);
+  } catch (e) {
+    handleFirestoreError(e, OperationType.WRITE, `reconciliations/${record.id}`);
+  }
+
+  return record;
+}
+
+export function subscribeToReconciliations(callback: (recs: POSReconciliation[]) => void) {
+  const q = query(collection(db, 'reconciliations'), orderBy('timestamp', 'desc'));
+  
+  return onSnapshot(q, (snapshot) => {
+    const recs = snapshot.docs.map(doc => doc.data() as POSReconciliation);
+    localStorage.setItem(RECONCILIATIONS_KEY, JSON.stringify(recs));
+    callback(recs);
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, 'reconciliations');
+  });
+}
+
 const COUNTERS_KEY = 'cashier_rating_counters_v1';
 const ACTIVE_COUNTER_KEY = 'cashier_rating_active_counter_id';
 const SETTINGS_KEY = 'cashier_rating_system_settings_v1';

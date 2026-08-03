@@ -47,6 +47,21 @@
         "adminPin": { "type": "string" }
       },
       "required": ["orgName", "themeColor"]
+    },
+    "reconciliations": {
+      "title": "POSReconciliation",
+      "description": "Permanent POS reconciliation records",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "branchName": { "type": "string" },
+        "date": { "type": "string" },
+        "posTotal": { "type": "number" },
+        "systemTotal": { "type": "number" },
+        "difference": { "type": "number" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "branchName", "date", "posTotal", "systemTotal", "difference"]
     }
   },
   "firestore": {
@@ -61,6 +76,10 @@
     "/config/settings": {
       "schema": "settings",
       "description": "Global system settings"
+    },
+    "/reconciliations/{recId}": {
+      "schema": "reconciliations",
+      "description": "Historical POS reconciliation logs"
     }
   }
 }

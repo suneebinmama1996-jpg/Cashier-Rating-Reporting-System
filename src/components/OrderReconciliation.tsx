@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
-import { RatingRecord, Counter, SystemSettings } from '../types';
+import { RatingRecord, Counter, SystemSettings, POSReconciliation } from '../types';
 import { THEMES } from '../constants/theme';
+import { saveReconciliationRecord, formatThaiDate } from '../utils/storage';
 import {
   Upload,
   FileCheck,
@@ -21,6 +22,7 @@ import {
 
 interface OrderReconciliationProps {
   ratings: RatingRecord[];
+  reconciliations: POSReconciliation[];
   counters: Counter[];
   settings: SystemSettings;
 }
@@ -32,6 +34,7 @@ interface PosRecord {
 
 export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
   ratings,
+  reconciliations,
   counters,
   settings,
 }) => {
@@ -39,9 +42,12 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
   const [posInputText, setPosInputText] = useState<string>('');
   const [uploadedFileName, setUploadedFileName] = useState<string>('');
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
-  const [selectedDate, setSelectedDate] = useState<string>(''); // YYYY-MM-DD or empty for all
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]); 
   const [activeFilter, setActiveFilter] = useState<'all' | 'missing' | 'matched'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [notes, setNotes] = useState<string>('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [viewMode, setViewMode] = useState<'reconcile' | 'history'>('reconcile');
 
   const theme = THEMES[settings.themeColor] || THEMES.pink;
 
@@ -409,6 +415,46 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const handleSaveReport = async () => {
+    if (posOrdersList.length === 0) return;
+    if (!selectedBranch || selectedBranch === 'all') {
+      alert('กรุณาเลือกสาขาก่อนบันทึกรายงาน');
+      return;
+    }
+    if (!selectedDate) {
+      alert('กรุณาเลือกวันที่ก่อนบันทึกรายงาน');
+      return;
+    }
+
+    if (!window.confirm(`ยืนยันการบันทึกรายงานกระทบยอด POS ของสาขา ${selectedBranch} ประจำวันที่ ${selectedDate} ใช่หรือไม่?\nข้อมูลจะไม่สามารถแก้ไขหรือลบได้ 100%`)) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const newReport: POSReconciliation = {
+        id: `rec-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        branchName: selectedBranch,
+        date: selectedDate,
+        posTotal: posOrdersList.length,
+        systemTotal: reconciliationData.matched.length,
+        difference: reconciliationData.missing.length,
+        notes: notes || undefined
+      };
+
+      await saveReconciliationRecord(newReport);
+      alert('บันทึกรายงานสำเร็จแล้ว');
+      setNotes('');
+      setViewMode('history');
+    } catch (e) {
+      console.error(e);
+      alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleDownloadTemplate = () => {
     let csvContent = '\uFEFF'; // UTF-8 BOM
     csvContent += 'หมายเลขลอเดอร์ภายใน,เวลาสั่งซื้อ\n';
@@ -478,7 +524,35 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
         </div>
       </div>
 
-      {/* Step 1: Upload / Input / Pull POS Orders */}
+      {/* View Selector Tabs */}
+      <div className="flex items-center bg-slate-800 p-1 rounded-2xl border border-slate-700 w-fit">
+        <button
+          onClick={() => setViewMode('reconcile')}
+          className={`flex items-center space-x-2 px-6 py-2.5 rounded-xl text-sm font-bold transition ${
+            viewMode === 'reconcile'
+              ? 'bg-pink-600 text-white shadow-lg'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <RefreshCw className="w-4 h-4" />
+          <span>ตรวจสอบกระทบยอดใหม่</span>
+        </button>
+        <button
+          onClick={() => setViewMode('history')}
+          className={`flex items-center space-x-2 px-6 py-2.5 rounded-xl text-sm font-bold transition ${
+            viewMode === 'history'
+              ? 'bg-pink-600 text-white shadow-lg'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Clock className="w-4 h-4" />
+          <span>ประวัติรายงานถาวร</span>
+        </button>
+      </div>
+
+      {viewMode === 'reconcile' ? (
+        <>
+          {/* Step 1: Upload / Input / Pull POS Orders */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Method 1: Upload File */}
         <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-3 flex flex-col justify-between">
@@ -644,177 +718,273 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
         </div>
       )}
 
-      {/* Main Reconciliation Table */}
-      {posOrdersList.length > 0 ? (
-        <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden space-y-4 p-5">
-          {/* Controls Bar */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            {/* Filter Tabs */}
-            <div className="flex items-center bg-slate-900 p-1 rounded-xl border border-slate-700 w-full sm:w-auto">
-              <button
-                onClick={() => setActiveFilter('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                  activeFilter === 'all'
-                    ? 'bg-pink-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                ทั้งหมด ({posOrdersList.length})
-              </button>
-              <button
-                onClick={() => setActiveFilter('missing')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                  activeFilter === 'missing'
-                    ? 'bg-rose-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                ⚠️ ตกหล่น/ไม่ประเมิน ({reconciliationData.missing.length})
-              </button>
-              <button
-                onClick={() => setActiveFilter('matched')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                  activeFilter === 'matched'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                ✅ ประเมินสำเร็จ ({reconciliationData.matched.length})
-              </button>
-            </div>
+          {/* Main Reconciliation Table */}
+          {posOrdersList.length > 0 ? (
+            <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden space-y-4 p-5">
+              {/* Controls Bar */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                {/* Filter Tabs */}
+                <div className="flex items-center bg-slate-900 p-1 rounded-xl border border-slate-700 w-full sm:w-auto">
+                  <button
+                    onClick={() => setActiveFilter('all')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                      activeFilter === 'all'
+                        ? 'bg-pink-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    ทั้งหมด ({posOrdersList.length})
+                  </button>
+                  <button
+                    onClick={() => setActiveFilter('missing')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                      activeFilter === 'missing'
+                        ? 'bg-rose-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    ⚠️ ตกหล่น/ไม่ประเมิน ({reconciliationData.missing.length})
+                  </button>
+                  <button
+                    onClick={() => setActiveFilter('matched')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                      activeFilter === 'matched'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    ✅ ประเมินสำเร็จ ({reconciliationData.matched.length})
+                  </button>
+                </div>
 
-            {/* Search & Export Buttons */}
-            <div className="flex items-center space-x-2 w-full sm:w-auto">
-              <div className="relative flex-1 sm:w-60">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="ค้นหาเลขออเดอร์, พนักงาน..."
-                  className="w-full bg-slate-900 text-white text-xs pl-9 pr-3 py-2 rounded-xl border border-slate-700 focus:outline-none focus:ring-2 focus:ring-pink-500"
-                />
+                {/* Search & Export Buttons */}
+                <div className="flex items-center space-x-2 w-full sm:w-auto">
+                  <div className="relative flex-1 sm:w-60">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="ค้นหาเลขออเดอร์, พนักงาน..."
+                      className="w-full bg-slate-900 text-white text-xs pl-9 pr-3 py-2 rounded-xl border border-slate-700 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleExportCSV}
+                    className="flex items-center space-x-1.5 bg-slate-700 hover:bg-slate-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-sm border border-slate-600 shrink-0"
+                  >
+                    <Download className="w-4 h-4 text-emerald-400" />
+                    <span className="hidden sm:inline">ส่งออกรายงาน CSV</span>
+                  </button>
+                </div>
               </div>
 
-              <button
-                onClick={handleExportCSV}
-                className="flex items-center space-x-1.5 bg-slate-700 hover:bg-slate-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-sm border border-slate-600 shrink-0"
-              >
-                <Download className="w-4 h-4 text-emerald-400" />
-                <span className="hidden sm:inline">ส่งออกรายงาน CSV</span>
-              </button>
-            </div>
-          </div>
+              {/* Table */}
+              <div className="overflow-x-auto rounded-xl border border-slate-700">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-900/80 text-slate-300 font-bold uppercase tracking-wider border-b border-slate-700">
+                      <th className="py-3 px-4">ลำดับ</th>
+                      <th className="py-3 px-4">เลขออเดอร์ภายใน (POS)</th>
+                      <th className="py-3 px-4">เวลาสั่งซื้อจากระบบ</th>
+                      <th className="py-3 px-4">สถานะการปฏิบัติงาน</th>
+                      <th className="py-3 px-4">สาขา / พนักงาน</th>
+                      <th className="py-3 px-4 text-center">คะแนนการประเมิน</th>
+                      <th className="py-3 px-4">เวลาประเมิน</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700/60 text-slate-200">
+                    {tableRows.length > 0 ? (
+                      tableRows.map((row, idx) => (
+                        <tr
+                          key={row.orderNumber + idx}
+                          className={`hover:bg-slate-700/40 transition ${
+                            row.status === 'MISSING' ? 'bg-rose-950/20' : ''
+                          }`}
+                        >
+                          <td className="py-3 px-4 text-slate-500">{idx + 1}</td>
+                          <td className="py-3 px-4 font-mono font-bold text-white">
+                            {row.orderNumber}
+                          </td>
+                          <td className="py-3 px-4">
+                            {row.posTime ? (
+                              <span className="font-mono text-cyan-300 bg-cyan-950/40 px-2 py-1 rounded border border-cyan-800/50">
+                                {row.posTime}
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">-</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            {row.status === 'MATCHED' ? (
+                              <span className="inline-flex items-center space-x-1 bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-full text-[11px] font-bold border border-emerald-500/30">
+                                <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>ประเมินสำเร็จ</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center space-x-1 bg-rose-500/20 text-rose-300 px-2.5 py-1 rounded-full text-[11px] font-bold border border-rose-500/30">
+                                <XCircle className="w-3.5 h-3.5 text-rose-400" />
+                                <span>ตกหล่น (ไม่ปฏิบัติการประเมิน)</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            {row.rating ? (
+                              <div>
+                                <div className="font-bold text-white">{row.rating.cashierName}</div>
+                                <div className="text-[11px] text-slate-400">{row.rating.counterName}</div>
+                              </div>
+                            ) : (
+                              <span className="text-slate-500">-</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            {row.rating ? (
+                              <span className="bg-pink-500/20 text-pink-300 font-bold px-2.5 py-1 rounded-lg border border-pink-500/30">
+                                ⭐ {row.rating.score} / 5 ({row.rating.level})
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">-</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-slate-300 font-mono text-[11px]">
+                            {row.rating ? (
+                              new Date(row.rating.timestamp).toLocaleString('th-TH')
+                            ) : (
+                              <span className="text-slate-500">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-slate-400">
+                          ไม่พบเลขออเดอร์ตรงกับเงื่อนไขการค้นหา
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
 
-          {/* Table */}
-          <div className="overflow-x-auto rounded-xl border border-slate-700">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-900/80 text-slate-300 font-bold uppercase tracking-wider border-b border-slate-700">
-                  <th className="py-3 px-4">ลำดับ</th>
-                  <th className="py-3 px-4">เลขออเดอร์ภายใน (POS)</th>
-                  <th className="py-3 px-4">เวลาสั่งซื้อจากระบบ</th>
-                  <th className="py-3 px-4">สถานะการปฏิบัติงาน</th>
-                  <th className="py-3 px-4">สาขา / พนักงาน</th>
-                  <th className="py-3 px-4 text-center">คะแนนการประเมิน</th>
-                  <th className="py-3 px-4">เวลาประเมิน</th>
+              {/* Save Report Section */}
+              <div className="mt-6 bg-slate-900/50 p-6 rounded-2xl border border-slate-700 space-y-4">
+                <div className="flex items-center space-x-2 text-white font-bold">
+                  <FileCheck className="w-5 h-5 text-pink-500" />
+                  <span>บันทึกรายงานกระทบยอด POS เป็นรายงานถาวร</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 mb-1.5">หมายเหตุเพิ่มเติม (ถ้ามี):</label>
+                    <textarea 
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="เช่น สาเหตุที่ตกหล่น หรือคำอธิบายเพิ่มเติม..."
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      rows={2}
+                    />
+                  </div>
+                  <div className="flex flex-col justify-end">
+                    <button
+                      onClick={handleSaveReport}
+                      disabled={isSaving || posOrdersList.length === 0}
+                      className="w-full bg-pink-600 hover:bg-pink-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-pink-900/20 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                    >
+                      {isSaving ? <RefreshCw className="w-5 h-5 animate-spin" /> : <FileCheck className="w-5 h-5" />}
+                      <span>บันทึกรายงานถาวร (ห้ามลบ/แก้ไข 100%)</span>
+                    </button>
+                    <p className="text-[10px] text-slate-500 text-center mt-2">
+                      * เมื่อบันทึกแล้ว ข้อมูลจะถูกเก็บไว้ในระบบเพื่อใช้เป็นหลักฐานและตรวจสอบย้อนหลัง
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Empty State */
+            <div className="bg-slate-800 rounded-2xl p-12 border border-slate-700 text-center space-y-3">
+              <div className="w-16 h-16 bg-pink-500/10 text-pink-400 rounded-2xl border border-pink-500/30 flex items-center justify-center mx-auto">
+                <FileSpreadsheet className="w-8 h-8" />
+              </div>
+              <h3 className="text-lg font-bold text-white">ยังไม่มีการนำเข้าเลขออเดอร์ POS</h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                กรุณาอัพโหลดไฟล์รายงานออเดอร์จากระบบ POS หรือวางเลขออเดอร์ในช่องทางด้านบนเพื่อเริ่มตรวจสอบว่าพนักงานปฏิบัติการประเมินครบทุกออเดอร์หรือไม่
+              </p>
+              {availableSystemOrders.length > 0 && (
+                <div className="pt-2">
+                  <button
+                    onClick={handlePullSystemOrders}
+                    className="bg-teal-600 hover:bg-teal-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition shadow flex items-center justify-center space-x-2 mx-auto"
+                  >
+                    <RefreshCw className="w-4 h-4 animate-spin-once" />
+                    <span>กดดึงเลขออเดอร์ที่ประเมินแล้วในระบบ ({availableSystemOrders.length} รายการ) มากระทบยอดทันที</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      ) : (
+        /* History View */
+        <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+          <div className="p-4 bg-slate-900/50 border-b border-slate-700 flex justify-between items-center">
+            <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+              <Clock className="w-4 h-4 text-pink-400" />
+              <span>ประวัติรายงานกระทบยอดถาวร (Immutable Logs)</span>
+            </h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-slate-300">
+              <thead className="bg-slate-900/80 text-slate-400 font-bold uppercase border-b border-slate-700">
+                <tr>
+                  <th className="px-6 py-4">วันที่สรุป</th>
+                  <th className="px-6 py-4">สาขา</th>
+                  <th className="px-6 py-4 text-center">ยอด POS</th>
+                  <th className="px-6 py-4 text-center">ประเมินแล้ว</th>
+                  <th className="px-6 py-4 text-center">ตกหล่น</th>
+                  <th className="px-6 py-4 text-center">Compliance Rate</th>
+                  <th className="px-6 py-4">บันทึกเมื่อ</th>
+                  <th className="px-6 py-4">หมายเหตุ</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-700/60 text-slate-200">
-                {tableRows.length > 0 ? (
-                  tableRows.map((row, idx) => (
-                    <tr
-                      key={row.orderNumber + idx}
-                      className={`hover:bg-slate-700/40 transition ${
-                        row.status === 'MISSING' ? 'bg-rose-950/20' : ''
-                      }`}
-                    >
-                      <td className="py-3 px-4 text-slate-500">{idx + 1}</td>
-                      <td className="py-3 px-4 font-mono font-bold text-white">
-                        {row.orderNumber}
-                      </td>
-                      <td className="py-3 px-4">
-                        {row.posTime ? (
-                          <span className="font-mono text-cyan-300 bg-cyan-950/40 px-2 py-1 rounded border border-cyan-800/50">
-                            {row.posTime}
+              <tbody className="divide-y divide-slate-700/50">
+                {reconciliations.length > 0 ? (
+                  reconciliations.map((rec) => {
+                    const rate = Math.round((rec.systemTotal / rec.posTotal) * 100);
+                    return (
+                      <tr key={rec.id} className="hover:bg-slate-700/30 transition">
+                        <td className="px-6 py-4 font-bold text-white">{rec.date}</td>
+                        <td className="px-6 py-4">{rec.branchName}</td>
+                        <td className="px-6 py-4 text-center font-mono">{rec.posTotal}</td>
+                        <td className="px-6 py-4 text-center font-mono text-emerald-400">{rec.systemTotal}</td>
+                        <td className="px-6 py-4 text-center font-mono text-rose-400">{rec.difference}</td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={`px-2 py-1 rounded-lg font-bold ${
+                            rate >= 90 ? 'bg-emerald-500/20 text-emerald-400' :
+                            rate >= 70 ? 'bg-amber-500/20 text-amber-400' :
+                            'bg-rose-500/20 text-rose-400'
+                          }`}>
+                            {rate}%
                           </span>
-                        ) : (
-                          <span className="text-slate-500">-</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        {row.status === 'MATCHED' ? (
-                          <span className="inline-flex items-center space-x-1 bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-full text-[11px] font-bold border border-emerald-500/30">
-                            <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>ประเมินสำเร็จ</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center space-x-1 bg-rose-500/20 text-rose-300 px-2.5 py-1 rounded-full text-[11px] font-bold border border-rose-500/30">
-                            <XCircle className="w-3.5 h-3.5 text-rose-400" />
-                            <span>ตกหล่น (ไม่ปฏิบัติการประเมิน)</span>
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        {row.rating ? (
-                          <div>
-                            <div className="font-bold text-white">{row.rating.cashierName}</div>
-                            <div className="text-[11px] text-slate-400">{row.rating.counterName}</div>
-                          </div>
-                        ) : (
-                          <span className="text-slate-500">-</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        {row.rating ? (
-                          <span className="bg-pink-500/20 text-pink-300 font-bold px-2.5 py-1 rounded-lg border border-pink-500/30">
-                            ⭐ {row.rating.score} / 5 ({row.rating.level})
-                          </span>
-                        ) : (
-                          <span className="text-slate-500">-</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-slate-300 font-mono text-[11px]">
-                        {row.rating ? (
-                          new Date(row.rating.timestamp).toLocaleString('th-TH')
-                        ) : (
-                          <span className="text-slate-500">-</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                        <td className="px-6 py-4 text-slate-500 font-mono">{formatThaiDate(rec.timestamp, true)}</td>
+                        <td className="px-6 py-4 italic text-slate-400 truncate max-w-[200px]" title={rec.notes}>
+                          {rec.notes || '-'}
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-400">
-                      ไม่พบเลขออเดอร์ตรงกับเงื่อนไขการค้นหา
+                    <td colSpan={8} className="text-center py-12 text-slate-500">
+                      ยังไม่มีประวัติการบันทึกรายงานถาวร
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-        </div>
-      ) : (
-        /* Empty State */
-        <div className="bg-slate-800 rounded-2xl p-12 border border-slate-700 text-center space-y-3">
-          <div className="w-16 h-16 bg-pink-500/10 text-pink-400 rounded-2xl border border-pink-500/30 flex items-center justify-center mx-auto">
-            <FileSpreadsheet className="w-8 h-8" />
-          </div>
-          <h3 className="text-lg font-bold text-white">ยังไม่มีการนำเข้าเลขออเดอร์ POS</h3>
-          <p className="text-xs text-slate-400 max-w-md mx-auto">
-            กรุณาอัพโหลดไฟล์รายงานออเดอร์จากระบบ POS หรือวางเลขออเดอร์ในช่องทางด้านบนเพื่อเริ่มตรวจสอบว่าพนักงานปฏิบัติการประเมินครบทุกออเดอร์หรือไม่
-          </p>
-          {availableSystemOrders.length > 0 && (
-            <div className="pt-2">
-              <button
-                onClick={handlePullSystemOrders}
-                className="bg-teal-600 hover:bg-teal-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition shadow flex items-center justify-center space-x-2 mx-auto"
-              >
-                <RefreshCw className="w-4 h-4 animate-spin-once" />
-                <span>กดดึงเลขออเดอร์ที่ประเมินแล้วในระบบ ({availableSystemOrders.length} รายการ) มากระทบยอดทันที</span>
-              </button>
-            </div>
-          )}
         </div>
       )}
     </div>

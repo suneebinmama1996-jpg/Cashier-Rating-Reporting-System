@@ -3,7 +3,7 @@ import { CustomerKiosk } from './components/CustomerKiosk';
 import { AdminDashboard } from './components/AdminDashboard';
 import { ShareLinksModal } from './components/ShareLinksModal';
 import { AdminPinModal } from './components/AdminPinModal';
-import { RatingRecord, Counter, SystemSettings } from './types';
+import { RatingRecord, Counter, SystemSettings, POSReconciliation } from './types';
 import {
   getStoredRatings,
   saveRatingRecord,
@@ -19,6 +19,8 @@ import {
   subscribeToConfig,
   subscribeToRatings,
   fetchRatingsFromFirestore,
+  getStoredReconciliations,
+  subscribeToReconciliations,
 } from './utils/storage';
 
 export default function App() {
@@ -45,6 +47,7 @@ export default function App() {
   
   const [viewMode, setViewMode] = useState<'kiosk' | 'admin'>('kiosk');
   const [ratings, setRatings] = useState<RatingRecord[]>([]);
+  const [reconciliations, setReconciliations] = useState<POSReconciliation[]>(getStoredReconciliations());
   const [counters, setCounters] = useState<Counter[]>([]);
   const [activeCounterId, setLocalActiveCounterId] = useState<string>('');
   const [settings, setSettings] = useState<SystemSettings>(getStoredSettings());
@@ -101,7 +104,12 @@ export default function App() {
       (updatedSettings) => setSettings(updatedSettings)
     );
 
-    return () => unsubscribeConfig();
+    const unsubscribeRecs = subscribeToReconciliations((updated) => setReconciliations(updated));
+
+    return () => {
+      unsubscribeConfig();
+      unsubscribeRecs();
+    };
   }, []);
 
   useEffect(() => {
@@ -231,6 +239,7 @@ export default function App() {
       ) : (
         <AdminDashboard
           ratings={filteredRatings}
+          reconciliations={reconciliations}
           counters={filteredCounters}
           settings={settings}
           branchFilter={branchFilter}

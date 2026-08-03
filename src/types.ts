@@ -90,3 +90,14 @@ export interface MonthlyStats {
   avgScore: number;
   satisfactionRate: number;
 }
+
+export interface POSReconciliation {
+  id: string;
+  timestamp: string;
+  branchName: string;
+  date: string;
+  posTotal: number;
+  systemTotal: number;
+  difference: number;
+  notes?: string;
+}
