@@ -74,10 +74,11 @@ export async function saveReconciliationRecord(record: POSReconciliation): Promi
 }
 
 export function subscribeToReconciliations(callback: (recs: POSReconciliation[]) => void) {
-  const q = query(collection(db, 'reconciliations'), orderBy('timestamp', 'desc'));
+  const q = query(collection(db, 'reconciliations'));
   
   return onSnapshot(q, (snapshot) => {
     const recs = snapshot.docs.map(doc => doc.data() as POSReconciliation);
+    recs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
     localStorage.setItem(RECONCILIATIONS_KEY, JSON.stringify(recs));
     callback(recs);
   }, (error) => {

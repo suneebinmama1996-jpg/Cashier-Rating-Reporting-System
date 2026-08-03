@@ -474,6 +474,18 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  // Filter reconciliations based on current selections
+  const filteredHistory = useMemo(() => {
+    let list = reconciliations;
+    if (selectedBranch && selectedBranch !== 'all') {
+      list = list.filter(r => r.branchName === selectedBranch);
+    }
+    if (selectedDate) {
+      list = list.filter(r => r.date === selectedDate);
+    }
+    return list;
+  }, [reconciliations, selectedBranch, selectedDate]);
+
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Header Banner */}
@@ -966,9 +978,9 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/50">
-                {reconciliations.length > 0 ? (
-                  reconciliations.map((rec) => {
-                    const rate = Math.round((rec.systemTotal / rec.posTotal) * 100);
+                {filteredHistory.length > 0 ? (
+                  filteredHistory.map((rec) => {
+                    const rate = rec.posTotal > 0 ? Math.round((rec.systemTotal / rec.posTotal) * 100) : 0;
                     return (
                       <tr key={rec.id} className="hover:bg-slate-700/30 transition">
                         <td className="px-6 py-4 font-bold text-white">{rec.date}</td>

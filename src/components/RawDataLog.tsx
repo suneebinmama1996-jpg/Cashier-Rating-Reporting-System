@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { RatingRecord, Counter, RatingLevel } from '../types';
 import { formatThaiDate, exportRatingsToCSV, deleteRatingRecord } from '../utils/storage';
 import { RATING_OPTIONS } from '../constants/ratingOptions';
-import { Download, Search, Filter, RefreshCw, Trash2, FileSpreadsheet, X, Clock } from 'lucide-react';
+import { Download, Search, Filter, RefreshCw, Trash2, FileSpreadsheet, X, Clock, AlertTriangle } from 'lucide-react';
 
 interface RawDataLogProps {
   ratings: RatingRecord[];
@@ -24,6 +24,18 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
   const [endDate, setEndDate] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
+
+  // Calculate duplicate frequencies for order numbers
+  const orderFrequencies = useMemo(() => {
+    const map = new Map<string, number>();
+    ratings.forEach(r => {
+      if (r.orderNumber) {
+        const key = r.orderNumber.trim().toUpperCase();
+        map.set(key, (map.get(key) || 0) + 1);
+      }
+    });
+    return map;
+  }, [ratings]);
 
   const filtered = useMemo(() => {
     return ratings.filter((r) => {
@@ -192,12 +204,21 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
               {paginated.length > 0 ? (
                 paginated.map((r) => {
                   const opt = getOptionByLevel(r.level);
+                  const isDuplicate = r.orderNumber && (orderFrequencies.get(r.orderNumber.trim().toUpperCase()) || 0) > 1;
+                  
                   return (
-                    <tr key={r.id} className="hover:bg-slate-50 transition">
+                    <tr key={r.id} className={`hover:bg-slate-50 transition ${isDuplicate ? 'bg-rose-50/50' : ''}`}>
                       <td className="px-4 py-3 font-mono font-bold text-slate-900 whitespace-nowrap">
-                        <span className="bg-slate-100 text-slate-800 px-2 py-1 rounded border border-slate-200">
-                          {r.orderNumber || '-'}
-                        </span>
+                        <div className="flex items-center space-x-2">
+                          <span className={`px-2 py-1 rounded border ${isDuplicate ? 'bg-rose-100 text-rose-800 border-rose-300' : 'bg-slate-100 text-slate-800 border-slate-200'}`}>
+                            {r.orderNumber || '-'}
+                          </span>
+                          {isDuplicate && (
+                            <span className="text-rose-500" title="พบเลขออเดอร์ซ้ำในระบบ">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 font-medium text-slate-600 whitespace-nowrap">
                         {formatThaiDate(r.timestamp, true)}

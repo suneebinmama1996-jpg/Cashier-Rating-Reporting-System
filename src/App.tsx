@@ -146,6 +146,12 @@ export default function App() {
     return ratings;
   }, [ratings, branchFilter, counterFilter]);
 
+  const filteredReconciliations = useMemo(() => {
+    if (!reconciliations) return [];
+    if (branchFilter) return reconciliations.filter(r => r.branchName === branchFilter);
+    return reconciliations;
+  }, [reconciliations, branchFilter]);
+
   const activeCounter = useMemo(() => {
     if (filteredCounters.length === 0) {
       return {
@@ -239,7 +245,7 @@ export default function App() {
       ) : (
         <AdminDashboard
           ratings={filteredRatings}
-          reconciliations={reconciliations}
+          reconciliations={filteredReconciliations}
           counters={filteredCounters}
           settings={settings}
           branchFilter={branchFilter}
