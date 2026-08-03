@@ -148,7 +148,7 @@ export default function App() {
 
   const filteredReconciliations = useMemo(() => {
     if (!reconciliations) return [];
-    if (branchFilter) return reconciliations.filter(r => r.branchName === branchFilter);
+    if (branchFilter && branchFilter !== 'all') return reconciliations.filter(r => r.branchName === branchFilter);
     return reconciliations;
   }, [reconciliations, branchFilter]);
 

@@ -22,6 +22,7 @@ import {
 
 interface OrderReconciliationProps {
   ratings: RatingRecord[];
+  allRatings?: RatingRecord[];
   reconciliations: POSReconciliation[];
   counters: Counter[];
   settings: SystemSettings;
@@ -34,6 +35,7 @@ interface PosRecord {
 
 export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
   ratings,
+  allRatings = [],
   reconciliations,
   counters,
   settings,
@@ -341,9 +343,22 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
     if (posOrdersList.length === 0) return [];
 
     // Calculate duplicate frequency map
+    // Check against both the current batch AND the entire system ratings
     const frequencyMap = new Map<string, number>();
+    
+    // 1. Mark existing system ratings (Global Check)
+    allRatings.forEach(r => {
+      if (r.orderNumber) {
+        const key = r.orderNumber.trim().toUpperCase();
+        frequencyMap.set(key, (frequencyMap.get(key) || 0) + 1);
+      }
+    });
+
+    // 2. Count current batch
     posOrdersList.forEach(num => {
-      const key = num.toUpperCase();
+      const key = num.trim().toUpperCase();
+      // If we already have it in system, it's a duplicate. 
+      // If it's multiple times in the batch, it's a duplicate.
       frequencyMap.set(key, (frequencyMap.get(key) || 0) + 1);
     });
 
@@ -357,13 +372,13 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
 
     reconciliationData.matched.forEach((m) => {
       const posTime = posOrderTimeMap.get(m.orderNumber.toUpperCase());
-      const isDuplicate = (frequencyMap.get(m.orderNumber.toUpperCase()) || 0) > 1;
+      const isDuplicate = (frequencyMap.get(m.orderNumber.trim().toUpperCase()) || 0) > 1;
       rows.push({ orderNumber: m.orderNumber, status: 'MATCHED', rating: m.rating, posTime, isDuplicate });
     });
 
     reconciliationData.missing.forEach((m) => {
       const posTime = posOrderTimeMap.get(m.orderNumber.toUpperCase());
-      const isDuplicate = (frequencyMap.get(m.orderNumber.toUpperCase()) || 0) > 1;
+      const isDuplicate = (frequencyMap.get(m.orderNumber.trim().toUpperCase()) || 0) > 1;
       rows.push({ orderNumber: m.orderNumber, status: 'MISSING', posTime, isDuplicate });
     });
 
@@ -447,7 +462,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
       };
 
       await saveReconciliationRecord(newReport);
-      alert('บันทึกรายงานสำเร็จแล้ว');
+      alert(`บันทึกรายงานสำเร็จแล้ว!\nคุณสามารถดูรายงานนี้ได้ในแท็บ "ประวัติรายงานถาวร" โดยเลือกสาขา ${selectedBranch} และวันที่ ${selectedDate}`);
       setNotes('');
       setViewMode('history');
     } catch (e) {
@@ -816,7 +831,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
                           key={row.orderNumber + idx}
                           className={`hover:bg-slate-700/40 transition ${
                             row.isDuplicate 
-                              ? 'bg-rose-900/40 border-l-4 border-rose-500' 
+                              ? 'bg-rose-900/60 border-l-4 border-rose-500' 
                               : row.status === 'MISSING' 
                                 ? 'bg-rose-950/20' 
                                 : ''
@@ -825,13 +840,13 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
                           <td className="py-3 px-4 text-slate-500">{idx + 1}</td>
                           <td className="py-3 px-4">
                             <div className="flex items-center space-x-2">
-                              <span className={`font-mono font-bold ${row.isDuplicate ? 'text-rose-200' : 'text-white'}`}>
+                              <span className={`px-2 py-0.5 rounded font-mono font-bold ${row.isDuplicate ? 'bg-rose-600 text-white shadow-sm' : 'text-white'}`}>
                                 {row.orderNumber}
                               </span>
                               {row.isDuplicate && (
-                                <span className="bg-rose-500 text-white text-[9px] px-1.5 py-0.5 rounded flex items-center space-x-1 font-bold animate-pulse">
+                                <span className="bg-rose-600 text-white text-[9px] px-1.5 py-0.5 rounded flex items-center space-x-1 font-bold animate-pulse shadow-sm">
                                   <AlertTriangle className="w-2.5 h-2.5" />
-                                  <span>ซ้ำ (DUPLICATE)</span>
+                                  <span>พบเลขซ้ำในระบบ! (DUPLICATE)</span>
                                 </span>
                               )}
                             </div>
@@ -958,10 +973,29 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
         /* History View */
         <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
           <div className="p-4 bg-slate-900/50 border-b border-slate-700 flex justify-between items-center">
-            <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-              <Clock className="w-4 h-4 text-pink-400" />
-              <span>ประวัติรายงานกระทบยอดถาวร (Immutable Logs)</span>
-            </h3>
+            <div className="flex flex-col">
+              <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                <Clock className="w-4 h-4 text-pink-400" />
+                <span>ประวัติรายงานกระทบยอดถาวร (Immutable Logs)</span>
+              </h3>
+              {(selectedBranch !== 'all' || selectedDate) && (
+                <div className="flex items-center space-x-2 mt-1">
+                  <span className="text-[10px] text-slate-400">
+                    กำลังแสดง: {selectedBranch !== 'all' ? `สาขา ${selectedBranch}` : 'ทุกสาขา'} 
+                    {selectedDate ? ` วันที่ ${selectedDate}` : ' ทุกวันที่'}
+                  </span>
+                  <button 
+                    onClick={() => {
+                      setSelectedBranch('all');
+                      setSelectedDate('');
+                    }}
+                    className="text-[10px] text-pink-400 hover:text-pink-300 underline"
+                  >
+                    ล้างตัวกรองเพื่อดูทั้งหมด
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs text-slate-300">

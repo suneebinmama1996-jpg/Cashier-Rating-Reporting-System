@@ -6,6 +6,7 @@ import { Download, Search, Filter, RefreshCw, Trash2, FileSpreadsheet, X, Clock,
 
 interface RawDataLogProps {
   ratings: RatingRecord[];
+  allRatings?: RatingRecord[];
   counters: Counter[];
   onResetData: () => void;
   onClearData: () => void;
@@ -13,6 +14,7 @@ interface RawDataLogProps {
 
 export const RawDataLog: React.FC<RawDataLogProps> = ({
   ratings,
+  allRatings = [],
   counters,
   onResetData,
   onClearData,
@@ -25,17 +27,18 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
 
-  // Calculate duplicate frequencies for order numbers
+  // Calculate duplicate frequencies for order numbers (check against ALL ratings for global detection)
   const orderFrequencies = useMemo(() => {
     const map = new Map<string, number>();
-    ratings.forEach(r => {
+    const checkList = allRatings.length > 0 ? allRatings : ratings;
+    checkList.forEach(r => {
       if (r.orderNumber) {
         const key = r.orderNumber.trim().toUpperCase();
         map.set(key, (map.get(key) || 0) + 1);
       }
     });
     return map;
-  }, [ratings]);
+  }, [ratings, allRatings]);
 
   const filtered = useMemo(() => {
     return ratings.filter((r) => {
@@ -207,15 +210,16 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
                   const isDuplicate = r.orderNumber && (orderFrequencies.get(r.orderNumber.trim().toUpperCase()) || 0) > 1;
                   
                   return (
-                    <tr key={r.id} className={`hover:bg-slate-50 transition ${isDuplicate ? 'bg-rose-50/50' : ''}`}>
+                    <tr key={r.id} className={`hover:bg-slate-50 transition ${isDuplicate ? 'bg-rose-100/50' : ''}`}>
                       <td className="px-4 py-3 font-mono font-bold text-slate-900 whitespace-nowrap">
                         <div className="flex items-center space-x-2">
-                          <span className={`px-2 py-1 rounded border ${isDuplicate ? 'bg-rose-100 text-rose-800 border-rose-300' : 'bg-slate-100 text-slate-800 border-slate-200'}`}>
+                          <span className={`px-2 py-1 rounded border shadow-sm ${isDuplicate ? 'bg-rose-600 text-white border-rose-700 font-black' : 'bg-slate-100 text-slate-800 border-slate-200'}`}>
                             {r.orderNumber || '-'}
                           </span>
                           {isDuplicate && (
-                            <span className="text-rose-500" title="พบเลขออเดอร์ซ้ำในระบบ">
-                              <AlertTriangle className="w-3.5 h-3.5" />
+                            <span className="bg-rose-600 text-white text-[10px] px-1.5 py-0.5 rounded-full flex items-center space-x-1 font-bold animate-pulse shadow-sm">
+                              <AlertTriangle className="w-3 h-3" />
+                              <span>ซ้ำ!</span>
                             </span>
                           )}
                         </div>

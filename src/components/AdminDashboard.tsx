@@ -307,6 +307,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {activeTab === 'reconcile' && (
           <OrderReconciliation
             ratings={filteredRatings}
+            allRatings={ratings}
             reconciliations={reconciliations}
             counters={counters}
             settings={settings}
@@ -315,6 +316,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {activeTab === 'raw' && (
           <RawDataLog
             ratings={filteredRatings}
+            allRatings={ratings}
             counters={counters}
             onResetData={onResetData}
             onClearData={onClearData}
