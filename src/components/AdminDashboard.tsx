@@ -311,6 +311,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             reconciliations={reconciliations}
             counters={counters}
             settings={settings}
+            selectedBranch={selectedBranch}
           />
         )}
         {activeTab === 'raw' && (

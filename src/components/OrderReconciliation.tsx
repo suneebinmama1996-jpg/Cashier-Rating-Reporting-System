@@ -652,9 +652,18 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
         {/* Method 3: Direct Text Area Input */}
         <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-3 flex flex-col justify-between">
           <div>
-            <div className="flex items-center space-x-2 text-white font-bold text-sm">
-              <FileCheck className="w-4 h-4 text-indigo-400" />
-              <span>วิธีที่ 3: วางเลขออเดอร์โดยตรง</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2 text-white font-bold text-sm">
+                <FileCheck className="w-4 h-4 text-indigo-400" />
+                <span>วิธีที่ 3: วางเลขออเดอร์โดยตรง</span>
+              </div>
+              <button
+                onClick={() => setIsScannerOpen(true)}
+                className="bg-slate-700 hover:bg-slate-600 text-[10px] text-pink-400 font-bold px-2 py-1 rounded-lg border border-slate-600 transition flex items-center space-x-1"
+              >
+                <Camera className="w-3 h-3" />
+                <span>สแกนบาร์โค้ด</span>
+              </button>
             </div>
             <p className="text-xs text-slate-400 mt-1">
               คัดลอกและวางรายการเลขออเดอร์ POS (1 บรรทัดต่อ 1 ออเดอร์)
@@ -663,7 +672,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
           <textarea
             rows={3}
             value={posInputText}
-            onChange={(e) => setPosInputText(e.target.value)}
+            onChange={(e) => handleTextareaChange(e.target.value)}
             placeholder="ตัวอย่าง:&#10;ORD-20260728-0001&#10;ORD-20260728-0002"
             className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs font-mono text-slate-200 focus:outline-none focus:ring-2 focus:ring-pink-500"
           />
@@ -1041,7 +1050,20 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
                 ) : (
                   <tr>
                     <td colSpan={8} className="text-center py-12 text-slate-500">
-                      ยังไม่มีประวัติการบันทึกรายงานถาวร
+                      <div className="flex flex-col items-center space-y-2">
+                        <span>{reconciliations.length > 0 ? 'ไม่พบข้อมูลที่ตรงกับตัวกรองที่เลือก' : 'ยังไม่มีประวัติการบันทึกรายงานถาวร'}</span>
+                        {reconciliations.length > 0 && (
+                          <button 
+                            onClick={() => {
+                              setSelectedBranch('all');
+                              setSelectedDate('');
+                            }}
+                            className="text-pink-400 underline text-xs font-bold"
+                          >
+                            แสดงข้อมูลทั้งหมด ({reconciliations.length} รายการ)
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )}
@@ -1050,6 +1072,18 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
           </div>
         </div>
       )}
+      {/* Barcode Scanner Modal */}
+      <BarcodeScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScanSuccess={(code) => {
+          if (posInputText.trim()) {
+            handleTextareaChange(posInputText + '\n' + code);
+          } else {
+            handleTextareaChange(code);
+          }
+        }}
+      />
     </div>
   );
 };

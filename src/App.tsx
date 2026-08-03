@@ -245,7 +245,7 @@ export default function App() {
       ) : (
         <AdminDashboard
           ratings={filteredRatings}
-          reconciliations={filteredReconciliations}
+          reconciliations={reconciliations}
           counters={filteredCounters}
           settings={settings}
           branchFilter={branchFilter}

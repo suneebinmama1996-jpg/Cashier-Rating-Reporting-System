@@ -5,7 +5,8 @@ import { RATING_OPTIONS } from '../constants/ratingOptions';
 import { RatingOption, Counter, RatingRecord, SystemSettings } from '../types';
 import { THEMES } from '../constants/theme';
 import { soundManager } from '../utils/sound';
-import { Heart, ThumbsUp, Sparkles, CheckCircle2, Volume2, VolumeX, Store, Receipt, Lock, Maximize, Minimize } from 'lucide-react';
+import { Heart, ThumbsUp, Sparkles, CheckCircle2, Volume2, VolumeX, Store, Receipt, Lock, Maximize, Minimize, Camera } from 'lucide-react';
+import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 interface CustomerKioskProps {
   activeCounter: Counter;
@@ -37,6 +38,7 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
 
   // Cashier Order Number State
   const [orderNumber, setOrderNumber] = useState<string>('');
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [lastSubmittedOrder, setLastSubmittedOrder] = useState<string>('');
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -215,13 +217,22 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
             <Receipt className={`w-4 h-4 ${theme.primaryText}`} />
             <span className="hidden sm:inline">{language === 'th' ? 'เลขออเดอร์/ใบเสร็จ:' : 'Order No:'}</span>
           </div>
-          <input
-            type="text"
-            value={orderNumber}
-            onChange={(e) => setOrderNumber(e.target.value)}
-            placeholder={language === 'th' ? 'ระบุเลขออเดอร์ / สแกน...' : 'Enter Order ID...'}
-            className={`bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:ring-2 ${theme.accentRing} w-40 sm:w-52 text-center`}
-          />
+          <div className="flex items-center">
+            <input
+              type="text"
+              value={orderNumber}
+              onChange={(e) => setOrderNumber(e.target.value)}
+              placeholder={language === 'th' ? 'ระบุเลขออเดอร์...' : 'Enter Order ID...'}
+              className={`bg-white border border-slate-300 rounded-l-lg px-3 py-1.5 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:ring-2 ${theme.accentRing} w-32 sm:w-44 text-center`}
+            />
+            <button
+              onClick={() => setIsScannerOpen(true)}
+              className="bg-slate-800 text-white p-1.5 rounded-r-lg hover:bg-slate-700 transition border-y border-r border-slate-300"
+              title={language === 'th' ? 'สแกนบาร์โค้ด' : 'Scan Barcode'}
+            >
+              <Camera className="w-4 h-4" />
+            </button>
+          </div>
           {orderNumber && (
             <button
               onClick={() => setOrderNumber('')}
@@ -302,13 +313,22 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
                 <div className="flex items-center justify-center space-x-2 bg-slate-900 text-white font-mono text-xs sm:text-sm px-4 py-2 rounded-2xl shadow-sm mb-6 border border-slate-700 max-w-md w-full">
                   <Receipt className="w-4 h-4 text-pink-400 shrink-0" />
                   <span className="shrink-0 font-medium text-slate-300">{language === 'th' ? 'เลขออเดอร์/ใบเสร็จ:' : 'Order No:'}</span>
-                  <input
-                    type="text"
-                    value={orderNumber}
-                    onChange={(e) => setOrderNumber(e.target.value)}
-                    placeholder={language === 'th' ? 'กรอกเลขออเดอร์ POS' : 'Enter Order ID'}
-                    className="bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1 text-xs sm:text-sm font-bold text-pink-300 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-pink-500 flex-1 min-w-0"
-                  />
+                  <div className="flex flex-1 items-center">
+                    <input
+                      type="text"
+                      value={orderNumber}
+                      onChange={(e) => setOrderNumber(e.target.value)}
+                      placeholder={language === 'th' ? 'กรอกเลขออเดอร์ POS' : 'Enter Order ID'}
+                      className="bg-slate-800 border border-slate-600 rounded-l-lg px-2.5 py-1 text-xs sm:text-sm font-bold text-pink-300 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-pink-500 flex-1 min-w-0"
+                    />
+                    <button
+                      onClick={() => setIsScannerOpen(true)}
+                      className="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-r-lg border-y border-r border-slate-600 transition"
+                      title={language === 'th' ? 'สแกนบาร์โค้ด' : 'Scan Barcode'}
+                    >
+                      <Camera className="w-4 h-4 text-pink-400" />
+                    </button>
+                  </div>
                   {orderNumber && (
                     <button
                       type="button"
@@ -413,6 +433,13 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
           </AnimatePresence>
         </div>
       </div>
+
+      {/* Barcode Scanner Modal */}
+      <BarcodeScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScanSuccess={(code) => setOrderNumber(code)}
+      />
 
       {/* Footer Branding Bar */}
       <div className="relative z-10 text-center text-slate-400 text-xs sm:text-sm py-2">
