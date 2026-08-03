@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { X, Camera, Zap, ZapOff } from 'lucide-react';
 
 interface BarcodeScannerModalProps {
@@ -32,13 +32,37 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       const devices = await Html5Qrcode.getCameras();
       if (devices && devices.length > 0) {
         setHasCamera(true);
-        const scanner = new Html5Qrcode("reader");
+        const scanner = new Html5Qrcode("reader", {
+          verbose: false,
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.QR_CODE,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.ITF
+          ]
+        });
         scannerRef.current = scanner;
 
+        // Custom QR Box function to make it wider for 1D barcodes
+        const qrboxFunction = (viewfinderWidth: number, viewfinderHeight: number) => {
+          const minEdgePercentage = 0.7; 
+          const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
+          const qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
+          return {
+            width: Math.min(viewfinderWidth - 40, 400),
+            height: 160
+          };
+        };
+
         const config = {
-          fps: 10,
-          qrbox: { width: 250, height: 150 },
-          aspectRatio: 1.0
+          fps: 20, // Faster processing
+          qrbox: qrboxFunction,
+          aspectRatio: 1.0,
+          disableFlip: false,
         };
 
         await scanner.start(
@@ -106,8 +130,17 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           </button>
         </div>
 
-        <div className="relative aspect-square sm:aspect-video bg-black flex items-center justify-center">
+        <div className="relative aspect-square sm:aspect-video bg-black flex items-center justify-center overflow-hidden">
           <div id="reader" className="w-full h-full" />
+          
+          {/* Scanning Line Animation */}
+          {hasCamera && !error && (
+            <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+              <div className="w-[80%] h-40 border-2 border-teal-500/50 rounded-lg relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-[2px] bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-[scan_2s_linear_infinite]" />
+              </div>
+            </div>
+          )}
           
           {!hasCamera && !error && (
             <div className="absolute inset-0 flex items-center justify-center text-white flex-col space-y-4">

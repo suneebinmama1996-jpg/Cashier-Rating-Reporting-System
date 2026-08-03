@@ -18,7 +18,9 @@ import {
   UserCheck,
   UserX,
   Clock,
+  Camera,
 } from 'lucide-react';
+import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 interface OrderReconciliationProps {
   ratings: RatingRecord[];
@@ -42,6 +44,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
 }) => {
   const [posRecords, setPosRecords] = useState<PosRecord[]>([]);
   const [posInputText, setPosInputText] = useState<string>('');
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [uploadedFileName, setUploadedFileName] = useState<string>('');
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]); 
