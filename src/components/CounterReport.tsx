@@ -1,7 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { RatingRecord, Counter } from '../types';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { Store, UserCheck, Award, ThumbsUp } from 'lucide-react';
+import { Store, UserCheck, Award, ThumbsUp, Calendar, X } from 'lucide-react';
 
 interface CounterReportProps {
   ratings: RatingRecord[];
@@ -9,9 +9,16 @@ interface CounterReportProps {
 }
 
 export const CounterReport: React.FC<CounterReportProps> = ({ ratings, counters }) => {
+  const [selectedDate, setSelectedDate] = useState<string>('');
+
+  const filteredRatingsByDate = useMemo(() => {
+    if (!selectedDate) return ratings;
+    return ratings.filter((r) => r.timestamp.startsWith(selectedDate));
+  }, [ratings, selectedDate]);
+
   const counterStats = useMemo(() => {
     return counters.map((counter) => {
-      const counterRatings = ratings.filter((r) => r.counterId === counter.id);
+      const counterRatings = filteredRatingsByDate.filter((r) => r.counterId === counter.id);
       const total = counterRatings.length;
 
       const excellent = counterRatings.filter((r) => r.level === 'excellent').length;
@@ -39,11 +46,11 @@ export const CounterReport: React.FC<CounterReportProps> = ({ ratings, counters 
         satRate,
       };
     });
-  }, [ratings, counters]);
+  }, [filteredRatingsByDate, counters]);
 
   return (
     <div className="space-y-6">
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center space-x-3">
           <div className="p-3 bg-teal-50 rounded-xl text-teal-600">
             <Store className="w-6 h-6" />
@@ -51,6 +58,28 @@ export const CounterReport: React.FC<CounterReportProps> = ({ ratings, counters 
           <div>
             <h3 className="text-base font-bold text-slate-800">รายงานสรุปประสิทธิภาพแยกตามสาขา</h3>
             <p className="text-xs text-slate-500">เปรียบเทียบคะแนนเฉลี่ยและสัดส่วนผู้ประเมินแต่ละจุดบริการ</p>
+          </div>
+        </div>
+
+        {/* Date Filter */}
+        <div className="flex items-center space-x-2 bg-slate-50 p-2 rounded-xl border border-slate-200 w-full sm:w-auto">
+          <Calendar className="w-4 h-4 text-slate-400" />
+          <span className="text-xs font-bold text-slate-600 whitespace-nowrap">ระบุวันที่:</span>
+          <div className="relative flex-1 sm:flex-initial">
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500 w-full"
+            />
+            {selectedDate && (
+              <button
+                onClick={() => setSelectedDate('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-500"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
       </div>
