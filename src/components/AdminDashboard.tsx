@@ -25,6 +25,7 @@ import {
   RefreshCw,
   Wifi,
   WifiOff,
+  Globe,
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -201,6 +202,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 >
                   <Palette className="w-4 h-4 text-teal-400" />
                   <span>โลโก้ & ธีมสี</span>
+                </button>
+
+                <button
+                  onClick={() => window.location.hash = 'links'}
+                  className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-xl text-xs font-bold transition shadow-sm border border-indigo-500/30"
+                  title="สร้างลิงก์สำหรับส่งให้ลูกค้าประเมินออนไลน์"
+                >
+                  <Globe className="w-4 h-4 text-white" />
+                  <span>สร้างลิงก์ประเมินออนไลน์</span>
                 </button>
               </>
             )}

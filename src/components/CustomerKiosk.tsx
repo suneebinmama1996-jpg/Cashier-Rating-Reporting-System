@@ -5,7 +5,7 @@ import { RATING_OPTIONS } from '../constants/ratingOptions';
 import { RatingOption, Counter, RatingRecord, SystemSettings } from '../types';
 import { THEMES } from '../constants/theme';
 import { soundManager } from '../utils/sound';
-import { Heart, ThumbsUp, Sparkles, CheckCircle2, Volume2, VolumeX, Store, Receipt, Lock, Maximize, Minimize, Camera } from 'lucide-react';
+import { Heart, ThumbsUp, Sparkles, CheckCircle2, Volume2, VolumeX, Store, Receipt, Lock, Maximize, Minimize, Camera, Globe } from 'lucide-react';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 interface CustomerKioskProps {
@@ -35,6 +35,8 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
   const [language, setLanguage] = useState<'th' | 'en'>('th');
 
   const theme = THEMES[settings.themeColor] || THEMES.teal;
+  
+  const [urlCashierName, setUrlCashierName] = useState<string>('');
 
   // Cashier Order Number State
   const [orderNumber, setOrderNumber] = useState<string>('');
@@ -67,14 +69,22 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
   };
 
   useEffect(() => {
-    // Read order or orderNumber from URL params if provided
+    // Read order, cashier, or branch from URL params if provided
     try {
       const searchStr = window.location.search || (window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '');
       if (searchStr) {
         const params = new URLSearchParams(searchStr);
+        
+        // Handle Order Number
         const orderParam = params.get('order') || params.get('orderNumber') || params.get('pos');
         if (orderParam) {
           setOrderNumber(orderParam.trim());
+        }
+
+        // Handle Cashier/Staff Name if provided in URL (overrides counter default)
+        const staffParam = params.get('staff') || params.get('cashier') || params.get('emp');
+        if (staffParam && staffParam.trim()) {
+          setUrlCashierName(staffParam.trim());
         }
       }
     } catch {
@@ -107,7 +117,7 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
       id: `r-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       counterId: activeCounter.id,
       counterName: activeCounter.name,
-      cashierName: activeCounter.cashierName,
+      cashierName: urlCashierName || activeCounter.cashierName,
       branchName: activeCounter.branchName || activeCounter.name,
       orderNumber: currentOrder,
       score: option.score,
@@ -277,6 +287,15 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
             title={isFullscreen ? (language === 'th' ? 'ออกจากการแสดงเต็มจอ' : 'Exit Fullscreen') : (language === 'th' ? 'แสดงเต็มจอ' : 'Fullscreen')}
           >
             {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+          </button>
+
+          <button
+            onClick={() => window.location.hash = 'links'}
+            className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-xl text-xs font-bold transition shadow-xs border border-indigo-500"
+            title={language === 'th' ? 'สร้างลิงก์ประเมินออนไลน์' : 'Digital Evaluation Link'}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{language === 'th' ? 'ลิงก์ประเมินออนไลน์' : 'Digital Link'}</span>
           </button>
 
           {onOpenAdmin && (

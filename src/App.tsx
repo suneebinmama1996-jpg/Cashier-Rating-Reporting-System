@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { CustomerKiosk } from './components/CustomerKiosk';
 import { AdminDashboard } from './components/AdminDashboard';
+import { DigitalLinkGenerator } from './components/DigitalLinkGenerator';
 import { ShareLinksModal } from './components/ShareLinksModal';
 import { AdminPinModal } from './components/AdminPinModal';
 import { RatingRecord, Counter, SystemSettings, POSReconciliation } from './types';
@@ -45,7 +46,7 @@ export default function App() {
   const [branchFilter, setBranchFilter] = useState<string | null>(initialFilters.branch);
   const [counterFilter, setCounterFilter] = useState<string | null>(initialFilters.counter);
   
-  const [viewMode, setViewMode] = useState<'kiosk' | 'admin'>('kiosk');
+  const [viewMode, setViewMode] = useState<'kiosk' | 'admin' | 'generator'>('kiosk');
   const [ratings, setRatings] = useState<RatingRecord[]>([]);
   const [reconciliations, setReconciliations] = useState<POSReconciliation[]>(getStoredReconciliations());
   const [counters, setCounters] = useState<Counter[]>([]);
@@ -63,6 +64,8 @@ export default function App() {
       const hash = window.location.hash.toLowerCase();
       if (hash.startsWith('#admin')) {
         setViewMode('admin');
+      } else if (hash.startsWith('#links')) {
+        setViewMode('generator');
       } else {
         setViewMode('kiosk');
       }
@@ -242,7 +245,7 @@ export default function App() {
           }}
           onOpenShareModal={() => setIsShareModalOpen(true)}
         />
-      ) : (
+      ) : viewMode === 'admin' ? (
         <AdminDashboard
           ratings={filteredRatings}
           reconciliations={reconciliations}
@@ -258,6 +261,20 @@ export default function App() {
           onClearData={handleClearData}
           onRefreshRatings={handleRefreshRatings}
         />
+      ) : (
+        <div className="min-h-screen bg-slate-50">
+          <div className="max-w-7xl mx-auto px-4 py-8">
+            <DigitalLinkGenerator 
+              counters={counters} 
+              settings={settings} 
+              onBack={() => {
+                const prevMode = window.location.hash === '#links' ? 'kiosk' : 'admin';
+                setViewMode('kiosk');
+                window.location.hash = '';
+              }}
+            />
+          </div>
+        </div>
       )}
 
       {/* Admin PIN Modal */}

@@ -9,12 +9,17 @@ interface CounterReportProps {
 }
 
 export const CounterReport: React.FC<CounterReportProps> = ({ ratings, counters }) => {
-  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
 
   const filteredRatingsByDate = useMemo(() => {
-    if (!selectedDate) return ratings;
-    return ratings.filter((r) => r.timestamp.startsWith(selectedDate));
-  }, [ratings, selectedDate]);
+    return ratings.filter((r) => {
+      const ratingDate = r.timestamp.split('T')[0];
+      if (startDate && ratingDate < startDate) return false;
+      if (endDate && ratingDate > endDate) return false;
+      return true;
+    });
+  }, [ratings, startDate, endDate]);
 
   const counterStats = useMemo(() => {
     return counters.map((counter) => {
@@ -61,23 +66,37 @@ export const CounterReport: React.FC<CounterReportProps> = ({ ratings, counters 
           </div>
         </div>
 
-        {/* Date Filter */}
-        <div className="flex items-center space-x-2 bg-slate-50 p-2 rounded-xl border border-slate-200 w-full sm:w-auto">
-          <Calendar className="w-4 h-4 text-slate-400" />
-          <span className="text-xs font-bold text-slate-600 whitespace-nowrap">ระบุวันที่:</span>
-          <div className="relative flex-1 sm:flex-initial">
+        {/* Date Filter Range */}
+        <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200 w-full sm:w-auto">
+          <div className="flex items-center space-x-2">
+            <Calendar className="w-4 h-4 text-slate-400" />
+            <span className="text-xs font-bold text-slate-600 whitespace-nowrap">ช่วงวันที่:</span>
+          </div>
+          
+          <div className="flex items-center space-x-2 flex-1 sm:flex-initial">
             <input
               type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500 w-full"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500 min-w-[120px]"
             />
-            {selectedDate && (
+            <span className="text-slate-400 text-xs">-</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500 min-w-[120px]"
+            />
+            {(startDate || endDate) && (
               <button
-                onClick={() => setSelectedDate('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-500"
+                onClick={() => {
+                  setStartDate('');
+                  setEndDate('');
+                }}
+                className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-rose-500 transition shadow-sm"
+                title="ล้างการกรอง"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-4 h-4" />
               </button>
             )}
           </div>
