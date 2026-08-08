@@ -59,14 +59,21 @@ export const RATING_OPTIONS: RatingOption[] = [
 ];
 
 export const DEFAULT_BRANCHES = [
-  'สาขาหลัก (Headquarters)',
-  'สาขาสยามพารากอน',
-  'สาขาเซ็นทรัลเวิลด์',
-  'สาขาบางนา',
+  'NUNUH PATTANI',
+  'NUNUH NARATHIWAT',
+  'NUNUH YALA',
+  'NUNUH HATYAI',
+  'NUNUH MISTINE',
+  'NUNUH KRABI',
+  'NUNUH DIGITAL',
 ];
 
 export const INITIAL_COUNTERS = [
-  { id: 'b1', name: 'สาขาหลัก (Headquarters)', cashierName: '-', branchName: 'สาขาหลัก (Headquarters)', isOnline: true },
-  { id: 'b2', name: 'สาขาสยามพารากอน', cashierName: '-', branchName: 'สาขาสยามพารากอน', isOnline: true },
-  { id: 'b3', name: 'สาขาเซ็นทรัลเวิลด์', cashierName: '-', branchName: 'สาขาเซ็นทรัลเวิลด์', isOnline: true },
+  { id: 'n-01', name: 'NUNUH PATTANI', branchName: 'NUNUH PATTANI', cashierName: '-', isOnline: true },
+  { id: 'n-02', name: 'NUNUH NARATHIWAT', branchName: 'NUNUH NARATHIWAT', cashierName: '-', isOnline: true },
+  { id: 'n-03', name: 'NUNUH YALA', branchName: 'NUNUH YALA', cashierName: '-', isOnline: true },
+  { id: 'n-04', name: 'NUNUH HATYAI', branchName: 'NUNUH HATYAI', cashierName: '-', isOnline: true },
+  { id: 'n-05', name: 'NUNUH MISTINE', branchName: 'NUNUH MISTINE', cashierName: '-', isOnline: true },
+  { id: 'n-06', name: 'NUNUH KRABI', branchName: 'NUNUH KRABI', cashierName: '-', isOnline: true },
+  { id: 'n-07', name: 'NUNUH DIGITAL', branchName: 'NUNUH DIGITAL', cashierName: '-', isOnline: true },
 ];

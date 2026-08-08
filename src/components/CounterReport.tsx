@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { RatingRecord, Counter } from '../types';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { Store, UserCheck, Award, ThumbsUp, Calendar, X } from 'lucide-react';
+import { matchesBranch } from '../utils/storage';
 
 interface CounterReportProps {
   ratings: RatingRecord[];
@@ -9,8 +10,8 @@ interface CounterReportProps {
 }
 
 export const CounterReport: React.FC<CounterReportProps> = ({ ratings, counters }) => {
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
+  const [startDate, setStartDate] = useState<string>('2024-01-01');
+  const [endDate, setEndDate] = useState<string>(new Date().toISOString().slice(0, 10));
 
   const filteredRatingsByDate = useMemo(() => {
     return ratings.filter((r) => {
@@ -22,9 +23,17 @@ export const CounterReport: React.FC<CounterReportProps> = ({ ratings, counters 
   }, [ratings, startDate, endDate]);
 
   const counterStats = useMemo(() => {
-    return counters.map((counter) => {
-      const counterRatings = filteredRatingsByDate.filter((r) => r.counterId === counter.id);
+    console.log(`[Transaction Mapping] Total records to map: ${filteredRatingsByDate.length}`);
+    const branchCounts: Record<string, number> = {};
+
+    const stats = counters.map((counter) => {
+      const counterRatings = filteredRatingsByDate.filter((r) => 
+        matchesBranch(r.branchName, counter.branchName) || 
+        (r.counterId === counter.id && !r.branchName)
+      );
+      
       const total = counterRatings.length;
+      branchCounts[counter.branchName] = total;
 
       const excellent = counterRatings.filter((r) => r.level === 'excellent').length;
       const good = counterRatings.filter((r) => r.level === 'good').length;
@@ -40,6 +49,7 @@ export const CounterReport: React.FC<CounterReportProps> = ({ ratings, counters 
       return {
         id: counter.id,
         counterName: counter.name,
+        branchName: counter.branchName,
         cashierName: counter.cashierName,
         total,
         excellent,
@@ -51,6 +61,9 @@ export const CounterReport: React.FC<CounterReportProps> = ({ ratings, counters 
         satRate,
       };
     });
+
+    console.log(`[CSAT Summary] Final Mapping Results:`, branchCounts);
+    return stats;
   }, [filteredRatingsByDate, counters]);
 
   return (

@@ -48,6 +48,29 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 const RATINGS_KEY = 'cashier_rating_records_v1';
 const RECONCILIATIONS_KEY = 'cashier_rating_reconciliations_v1';
 
+export function normalizeBranchName(name: string | undefined): string {
+  if (!name) return 'Unknown';
+  // Remove NUNUH prefix, underscores, and extra spaces for comparison
+  return name.replace(/^NUNUH\s+/i, '').replace(/_/g, ' ').trim().toLowerCase();
+}
+
+export function matchesBranch(recordBranch: string | undefined, filterBranch: string): boolean {
+  if (!recordBranch) return false;
+  if (filterBranch === 'all') return true;
+  return normalizeBranchName(recordBranch) === normalizeBranchName(filterBranch);
+}
+
+async function fetchWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (retries <= 0) throw err;
+    console.log(`Fetch failed, retrying... (${retries} left)`);
+    await new Promise(resolve => setTimeout(resolve, delay));
+    return fetchWithRetry(fn, retries - 1, delay * 1.5);
+  }
+}
+
 export function getStoredReconciliations(): POSReconciliation[] {
   if (typeof window === 'undefined') return [];
   const stored = localStorage.getItem(RECONCILIATIONS_KEY);
@@ -100,7 +123,13 @@ export const DEFAULT_SETTINGS: SystemSettings = {
 export function getStoredSettings(): SystemSettings {
   if (typeof window === 'undefined') return DEFAULT_SETTINGS;
   try {
-    const data = localStorage.getItem(SETTINGS_KEY);
+    const keys = [SETTINGS_KEY, 'cashier_rating_system_settings', 'settings', 'config'];
+    let data = null;
+    for (const key of keys) {
+      data = localStorage.getItem(key);
+      if (data) break;
+    }
+
     if (!data) return DEFAULT_SETTINGS;
     return { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
   } catch {
@@ -133,15 +162,27 @@ export function isRealRatingRecord(r: any): boolean {
   if (!r || typeof r !== 'object') return false;
   if (!r.id || typeof r.id !== 'string') return false;
   if (!r.timestamp || typeof r.timestamp !== 'string') return false;
-  // Filter out any legacy mock records starting with 'rec-'
-  if (r.id.startsWith('rec-')) return false;
+  
+  // Filter out any ID explicitly marked as mock
+  if (r.id.startsWith('mock-') || r.id.startsWith('rec-')) return false;
+  
+  // Filter out legacy mock branches
+  if (isMockBranch(r.branchName)) return false;
+  
   return true;
 }
 
 export function getStoredRatings(): RatingRecord[] {
   if (typeof window === 'undefined') return [];
   try {
-    const data = localStorage.getItem(RATINGS_KEY);
+    // Deep migration: Check multiple possible legacy keys
+    const keys = [RATINGS_KEY, 'cashier_rating_records', 'ratings', 'records'];
+    let data = null;
+    for (const key of keys) {
+      data = localStorage.getItem(key);
+      if (data) break;
+    }
+    
     if (!data) return [];
     const parsed: RatingRecord[] = JSON.parse(data);
     return parsed.filter(isRealRatingRecord);
@@ -158,6 +199,16 @@ export async function saveRatingRecord(created: RatingRecord): Promise<RatingRec
   // Save to Firestore - Real-time sync
   try {
     await setDoc(doc(db, 'ratings', created.id), created);
+    
+    // Optional Dual Backup - Webhook
+    const webhookUrl = (window as any).WEBHOOK_BACKUP_URL || '';
+    if (webhookUrl) {
+      fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(created)
+      }).catch(err => console.error('Webhook backup error:', err));
+    }
   } catch (e) {
     console.error('Firestore save rating error:', e);
   }
@@ -197,15 +248,38 @@ export async function clearAllRatings(): Promise<void> {
   }
 }
 
+const MOCK_BRANCHES_TO_REMOVE = ['สาขาหลัก (Headquarters)', 'สาขาสยามพารากอน', 'สาขาเซ็นทรัลเวิลด์', 'สาขาบางนา'];
+
+function isMockBranch(branchName: string | undefined): boolean {
+  if (!branchName) return false;
+  return MOCK_BRANCHES_TO_REMOVE.includes(branchName);
+}
+
 export function getStoredCounters(): Counter[] {
   if (typeof window === 'undefined') return INITIAL_COUNTERS;
   try {
-    const data = localStorage.getItem(COUNTERS_KEY);
+    const keys = [COUNTERS_KEY, 'cashier_rating_counters', 'counters', 'branches'];
+    let data = null;
+    for (const key of keys) {
+      data = localStorage.getItem(key);
+      if (data) break;
+    }
+
     if (!data) {
       localStorage.setItem(COUNTERS_KEY, JSON.stringify(INITIAL_COUNTERS));
       return INITIAL_COUNTERS;
     }
-    return JSON.parse(data);
+    
+    let parsed: Counter[] = JSON.parse(data);
+    // Filter out mock branches
+    parsed = parsed.filter(c => !isMockBranch(c.branchName));
+    
+    if (parsed.length === 0) {
+      localStorage.setItem(COUNTERS_KEY, JSON.stringify(INITIAL_COUNTERS));
+      return INITIAL_COUNTERS;
+    }
+    
+    return parsed;
   } catch {
     return INITIAL_COUNTERS;
   }
@@ -232,21 +306,107 @@ export function setActiveCounterId(counterId: string): void {
 }
 
 export async function fetchRatingsFromFirestore(): Promise<RatingRecord[]> {
-  try {
-    const snapshot = await getDocs(collection(db, 'ratings'));
-    const records: RatingRecord[] = [];
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data() as RatingRecord;
-      if (isRealRatingRecord(data)) {
-        records.push(data);
+  const fetchTask = async () => {
+    // Try multiple collections for legacy support
+    const collections = ['ratings', 'rating_records', 'records', 'cashier_ratings'];
+    let allRecords: RatingRecord[] = [];
+    
+    for (const colName of collections) {
+      try {
+        const snapshot = await getDocs(collection(db, colName));
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as any;
+          if (data && data.id && data.timestamp && isRealRatingRecord(data)) {
+            allRecords.push(data);
+          }
+        });
+      } catch (e) {
+        console.warn(`Failed to fetch from collection ${colName}:`, e);
       }
-    });
+    }
+
+    // De-duplicate by ID
+    const uniqueMap = new Map<string, RatingRecord>();
+    allRecords.forEach(r => uniqueMap.set(r.id, r));
+    const records = Array.from(uniqueMap.values());
+
     records.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-    localStorage.setItem(RATINGS_KEY, JSON.stringify(records));
+    if (records.length > 0) {
+      localStorage.setItem(RATINGS_KEY, JSON.stringify(records));
+    }
     return records;
+  };
+
+  try {
+    return await fetchWithRetry(fetchTask);
   } catch (e) {
-    console.error('Fetch ratings from Firestore error:', e);
+    console.error('Final Fetch ratings failure:', e);
     return getStoredRatings();
+  }
+}
+
+export async function fetchConfigFromFirestore(): Promise<{ counters: Counter[], settings: SystemSettings }> {
+  const fetchTask = async () => {
+    // Try multiple paths for counters
+    const counterPaths = [
+      doc(db, 'config', 'counters'),
+      doc(db, 'counters', 'list'),
+      doc(db, 'config', 'branches'),
+      doc(db, 'branches', 'all'),
+      doc(db, 'settings', 'counters')
+    ];
+    
+    let counters = getStoredCounters();
+    for (const p of counterPaths) {
+      const snap = await getDocFromServer(p).catch(() => null);
+      if (snap && snap.exists()) {
+        const data = snap.data();
+        let list: Counter[] = [];
+        if (data && Array.isArray(data.list)) list = data.list;
+        else if (Array.isArray(data)) list = data;
+        else if (data && Array.isArray(data.counters)) list = data.counters;
+
+        list = list.filter(c => !isMockBranch(c.branchName));
+        if (list.length > 0) {
+          counters = list;
+          localStorage.setItem(COUNTERS_KEY, JSON.stringify(counters));
+          break;
+        }
+        if (data && Array.isArray(data.counters)) {
+          counters = data.counters;
+          localStorage.setItem(COUNTERS_KEY, JSON.stringify(counters));
+          break;
+        }
+      }
+    }
+
+    // Try multiple paths for settings
+    const settingsPaths = [
+      doc(db, 'config', 'settings'),
+      doc(db, 'settings', 'global'),
+      doc(db, 'config', 'system'),
+      doc(db, 'system', 'settings')
+    ];
+    
+    let settings = getStoredSettings();
+    for (const p of settingsPaths) {
+      const snap = await getDocFromServer(p).catch(() => null);
+      if (snap && snap.exists()) {
+        const data = snap.data() as SystemSettings;
+        settings = { ...DEFAULT_SETTINGS, ...data };
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        break;
+      }
+    }
+
+    return { counters, settings };
+  };
+
+  try {
+    return await fetchWithRetry(fetchTask);
+  } catch (e) {
+    console.error('Final Fetch config failure:', e);
+    return { counters: getStoredCounters(), settings: getStoredSettings() };
   }
 }
 
@@ -260,15 +420,23 @@ export function subscribeToConfig(
   const unsubscribeCounters = onSnapshot(doc(db, 'config', 'counters'), (snapshot) => {
     if (snapshot.exists()) {
       const data = snapshot.data();
-      if (data && Array.isArray(data.list) && data.list.length > 0) {
-        localStorage.setItem(COUNTERS_KEY, JSON.stringify(data.list));
-        onCountersUpdate(data.list);
+      if (data && Array.isArray(data.list)) {
+        let list = data.list.filter((c: any) => !isMockBranch(c.branchName));
+        if (list.length === 0) {
+          list = INITIAL_COUNTERS;
+          setDoc(doc(db, 'config', 'counters'), { list }).catch(() => {});
+        }
+        localStorage.setItem(COUNTERS_KEY, JSON.stringify(list));
+        onCountersUpdate(list);
       }
     } else {
       // Initialize counters in Firestore IF it's empty
       const local = getStoredCounters();
-      if (local.length > 0) {
-        setDoc(doc(db, 'config', 'counters'), { list: local }).catch(() => {});
+      if (local && local.length > 0) {
+        console.log('Initializing Firestore counters from local storage...');
+        setDoc(doc(db, 'config', 'counters'), { list: local }).catch((e) => {
+          console.error('Initial counters sync error:', e);
+        });
       }
     }
   }, (err) => {
@@ -305,45 +473,45 @@ export function subscribeToRatings(
   const ratingsPath = 'ratings';
   let qRatings = query(collection(db, 'ratings'));
   
-  if (branchFilter && branchFilter !== 'all') {
-    // If we have a branch filter, we could theoretically use Firestore where() 
-    // but it requires a composite index if combined with orderBy.
-    // For now, we'll fetch and filter client-side if the dataset is small, 
-    // OR we can try to use a simple where filter if possible.
-    // However, to keep it simple and robust (no missing indexes errors), 
-    // we'll stick to full sync but allow future optimization.
-  }
-  
   const unsubscribeRatings = onSnapshot(qRatings, (snapshot) => {
-    const records: RatingRecord[] = [];
-    const mockRefsToDelete: any[] = [];
+    const allFirestoreRecords: RatingRecord[] = [];
 
     snapshot.forEach((docSnap) => {
       const data = docSnap.data() as RatingRecord;
-      if (!isRealRatingRecord(data)) {
-        mockRefsToDelete.push(docSnap.ref);
-      } else {
-        // Filter by branch client-side to ensure no index errors
-        if (!branchFilter || branchFilter === 'all' || data.branchName === branchFilter) {
-          records.push(data);
-        }
+      if (isRealRatingRecord(data)) {
+        allFirestoreRecords.push(data);
       }
     });
 
-    // Delete mock docs in background batches if found in Firestore
-    if (mockRefsToDelete.length > 0) {
-      console.log(`Cleaning up ${mockRefsToDelete.length} legacy mock records from Firestore...`);
-      for (let i = 0; i < mockRefsToDelete.length; i += 400) {
-        const chunk = mockRefsToDelete.slice(i, i + 400);
-        const batch = writeBatch(db);
-        chunk.forEach(ref => batch.delete(ref));
-        batch.commit().catch(e => console.error('Error deleting mock docs:', e));
-      }
+    // 1. Get current local records
+    const localRecords = getStoredRatings();
+    
+    // 2. Merge logic: If Firestore has data, it's the source of truth for those records.
+    // However, if we have local records NOT yet in Firestore, we should preserve them and upload them.
+    const firestoreIds = new Set(allFirestoreRecords.map(r => r.id));
+    const pendingUpload = localRecords.filter(r => !firestoreIds.has(r.id));
+    
+    // Upload pending records to Firestore
+    if (pendingUpload.length > 0) {
+      console.log(`Uploading ${pendingUpload.length} pending local records to Firestore...`);
+      pendingUpload.forEach(r => {
+        setDoc(doc(db, 'ratings', r.id), r).catch(e => console.error('Auto-sync error:', e));
+      });
     }
 
-    records.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-    localStorage.setItem(RATINGS_KEY, JSON.stringify(records));
-    onRatingsUpdate(records);
+    // 3. The final combined set for storage is EVERYTHING in Firestore + anything pending upload
+    const combined = [...allFirestoreRecords, ...pendingUpload];
+    combined.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    
+    // 4. Save COMPLETE set to local storage (NEVER save a filtered subset)
+    localStorage.setItem(RATINGS_KEY, JSON.stringify(combined));
+
+    // 5. Apply filtering ONLY for the UI callback
+    const filtered = branchFilter && branchFilter !== 'all' 
+      ? combined.filter(r => matchesBranch(r.branchName, branchFilter))
+      : combined;
+      
+    onRatingsUpdate(filtered);
   }, (err) => {
     handleFirestoreError(err, OperationType.GET, ratingsPath);
   });

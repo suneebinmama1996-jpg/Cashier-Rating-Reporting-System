@@ -6,27 +6,36 @@ interface DigitalLinkGeneratorProps {
   counters: Counter[];
   settings: SystemSettings;
   onBack?: () => void;
+  defaultBranch?: string | null;
 }
 
-export const DigitalLinkGenerator: React.FC<DigitalLinkGeneratorProps> = ({ counters, settings, onBack }) => {
-  const [selectedBranch, setSelectedBranch] = useState<string>('');
+export const DigitalLinkGenerator: React.FC<DigitalLinkGeneratorProps> = ({ counters, settings, onBack, defaultBranch }) => {
+  const [selectedBranch, setSelectedBranch] = useState<string>(defaultBranch || '');
   const [staffName, setStaffName] = useState<string>('');
   const [posId, setPosId] = useState<string>('');
   const [isCopied, setIsCopied] = useState(false);
 
   // Get unique branches
   const branches = useMemo(() => {
-    return Array.from(new Set(counters.map(c => c.branchName))).filter(Boolean);
-  }, [counters]);
+    const list = Array.from(new Set(counters.map(c => c.branchName))).filter(Boolean);
+    if (defaultBranch && !list.includes(defaultBranch)) {
+      list.unshift(defaultBranch);
+    }
+    return list;
+  }, [counters, defaultBranch]);
 
   // Set default branch if not selected
   React.useEffect(() => {
     if (!selectedBranch && branches.length > 0) {
-      // Prefer "Digital" or "Online" branch if exists
-      const digitalBranch = branches.find(b => b.toLowerCase().includes('digital') || b.toLowerCase().includes('online'));
-      setSelectedBranch(digitalBranch || branches[0]);
+      if (defaultBranch && branches.includes(defaultBranch)) {
+        setSelectedBranch(defaultBranch);
+      } else {
+        // Prefer "Digital" or "Online" branch if exists
+        const digitalBranch = branches.find(b => b.toLowerCase().includes('digital') || b.toLowerCase().includes('online'));
+        setSelectedBranch(digitalBranch || branches[0]);
+      }
     }
-  }, [branches, selectedBranch]);
+  }, [branches, selectedBranch, defaultBranch]);
 
   const publicSharedBaseUrl = 'https://ais-pre-te4rx6pbwev3sufbtfprfp-628779573343.asia-southeast1.run.app/';
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -99,7 +108,10 @@ export const DigitalLinkGenerator: React.FC<DigitalLinkGeneratorProps> = ({ coun
                 <select
                   value={selectedBranch}
                   onChange={(e) => setSelectedBranch(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition"
+                  disabled={!!defaultBranch}
+                  className={`w-full border rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none transition ${
+                    defaultBranch ? 'bg-slate-100 border-slate-300 text-slate-500 cursor-not-allowed opacity-80' : 'bg-slate-50 border-slate-200 text-slate-800'
+                  }`}
                 >
                   {branches.map(b => (
                     <option key={b} value={b}>{b}</option>

@@ -20,6 +20,7 @@ import {
   subscribeToConfig,
   subscribeToRatings,
   fetchRatingsFromFirestore,
+  fetchConfigFromFirestore,
   getStoredReconciliations,
   subscribeToReconciliations,
 } from './utils/storage';
@@ -81,6 +82,17 @@ export default function App() {
     window.location.hash = 'kiosk';
   };
 
+  const handleRefreshRatings = async () => {
+    // 1. Fetch Ratings
+    const fetchedRatings = await fetchRatingsFromFirestore();
+    setRatings(fetchedRatings);
+    
+    // 2. Fetch Config (Counters & Settings)
+    const { counters: fetchedCounters, settings: fetchedSettings } = await fetchConfigFromFirestore();
+    setCounters(fetchedCounters);
+    setSettings(fetchedSettings);
+  };
+
   useEffect(() => {
     // 1. Initial local state load
     setRatings(getStoredRatings());
@@ -95,7 +107,10 @@ export default function App() {
       setActiveCounterId(storedCounters[0].id);
     }
 
-    // 2. Subscribe to Config (Always active regardless of viewMode)
+    // 2. Trigger data recovery from Firestore on mount
+    handleRefreshRatings();
+
+    // 3. Subscribe to Config (Always active regardless of viewMode)
     const unsubscribeConfig = subscribeToConfig(
       (updatedCounters) => {
         setCounters(updatedCounters);
@@ -221,11 +236,6 @@ export default function App() {
     }
   };
 
-  const handleRefreshRatings = async () => {
-    const fetched = await fetchRatingsFromFirestore();
-    setRatings(fetched);
-  };
-
   return (
     <div className="min-h-screen bg-slate-100 font-sans antialiased text-slate-800 selection:bg-teal-500 selection:text-white">
       {viewMode === 'kiosk' ? (
@@ -267,6 +277,7 @@ export default function App() {
             <DigitalLinkGenerator 
               counters={counters} 
               settings={settings} 
+              defaultBranch={branchFilter}
               onBack={() => {
                 const prevMode = window.location.hash === '#links' ? 'kiosk' : 'admin';
                 setViewMode('kiosk');

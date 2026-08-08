@@ -1,85 +1,45 @@
 {
   "entities": {
-    "ratings": {
-      "title": "RatingRecord",
-      "description": "Cashier evaluation records",
+    "Rating": {
+      "title": "Rating Record",
+      "description": "Customer satisfaction rating entry",
+      "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "orderNumber": { "type": "string" },
-        "timestamp": { "type": "string" },
         "counterId": { "type": "string" },
         "counterName": { "type": "string" },
         "cashierName": { "type": "string" },
         "branchName": { "type": "string" },
+        "orderNumber": { "type": "string" },
         "score": { "type": "number" },
-        "level": { "type": "string" }
+        "level": { "type": "string" },
+        "comment": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "timestamp", "counterId", "score", "level"]
+      "required": ["id", "score", "timestamp", "counterId"]
     },
-    "counters": {
-      "title": "Counter",
-      "description": "Cashier counter configurations",
+    "Config": {
+      "title": "System Configuration",
+      "description": "Stores counters and global settings",
+      "type": "object",
       "properties": {
-        "list": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "id": { "type": "string" },
-              "name": { "type": "string" },
-              "cashierName": { "type": "string" },
-              "branchName": { "type": "string" },
-              "isOnline": { "type": "boolean" }
-            },
-            "required": ["id", "name", "cashierName", "branchName"]
-          }
-        }
-      },
-      "required": ["list"]
-    },
-    "settings": {
-      "title": "SystemSettings",
-      "description": "System branding and configuration",
-      "properties": {
-        "logoUrl": { "type": "string" },
-        "orgName": { "type": "string" },
-        "themeColor": { "type": "string" },
-        "adminPin": { "type": "string" }
-      },
-      "required": ["orgName", "themeColor"]
-    },
-    "reconciliations": {
-      "title": "POSReconciliation",
-      "description": "Permanent POS reconciliation records",
-      "properties": {
-        "id": { "type": "string" },
-        "timestamp": { "type": "string" },
-        "branchName": { "type": "string" },
-        "date": { "type": "string" },
-        "posTotal": { "type": "number" },
-        "systemTotal": { "type": "number" },
-        "difference": { "type": "number" },
-        "notes": { "type": "string" }
-      },
-      "required": ["id", "timestamp", "branchName", "date", "posTotal", "systemTotal", "difference"]
+        "list": { "type": "array" },
+        "settings": { "type": "object" }
+      }
     }
   },
   "firestore": {
-    "/ratings/{ratingId}": {
-      "schema": "ratings",
-      "description": "Collection of all cashier ratings"
+    "ratings/{ratingId}": {
+      "schema": "Rating",
+      "description": "Collection of all customer ratings"
     },
-    "/config/counters": {
-      "schema": "counters",
-      "description": "Counter configuration list"
+    "config/counters": {
+      "schema": "Config",
+      "description": "List of all counters/branches"
     },
-    "/config/settings": {
-      "schema": "settings",
+    "config/settings": {
+      "schema": "Config",
       "description": "Global system settings"
-    },
-    "/reconciliations/{recId}": {
-      "schema": "reconciliations",
-      "description": "Historical POS reconciliation logs"
     }
   }
 }

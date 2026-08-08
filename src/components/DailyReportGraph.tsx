@@ -22,11 +22,9 @@ interface DailyReportGraphProps {
 }
 
 export const DailyReportGraph: React.FC<DailyReportGraphProps> = ({ ratings, counters }) => {
-  // Date states (default to last 14 days ending today)
-  const todayIso = new Date('2026-07-28').toISOString().slice(0, 10);
-  const defaultStartIso = new Date(new Date('2026-07-28').getTime() - 13 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  // Date states (default to All Time - starting from a year ago to today)
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const defaultStartIso = '2024-01-01'; // Default to All Time starting from 2024
 
   const [startDate, setStartDate] = useState(defaultStartIso);
   const [endDate, setEndDate] = useState(todayIso);
