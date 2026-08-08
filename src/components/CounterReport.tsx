@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { RatingRecord, Counter } from '../types';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { Store, UserCheck, Award, ThumbsUp, Calendar, X } from 'lucide-react';
-import { matchesBranch } from '../utils/storage';
+import { recordMatchesBranch, normalizeDate } from '../utils/storage';
 
 interface CounterReportProps {
   ratings: RatingRecord[];
@@ -10,15 +10,19 @@ interface CounterReportProps {
 }
 
 export const CounterReport: React.FC<CounterReportProps> = ({ ratings, counters }) => {
-  const [startDate, setStartDate] = useState<string>('2024-01-01');
-  const [endDate, setEndDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  // Use empty string for All Time as requested
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
 
   const filteredRatingsByDate = useMemo(() => {
+    const sDate = startDate || '';
+    const eDate = endDate || '';
+    
     return ratings.filter((r) => {
-      const ratingDate = r.timestamp.split('T')[0];
-      if (startDate && ratingDate < startDate) return false;
-      if (endDate && ratingDate > endDate) return false;
-      return true;
+      const ratingDate = normalizeDate(r.timestamp);
+      const matchStartDate = sDate === '' || ratingDate >= sDate;
+      const matchEndDate = eDate === '' || ratingDate <= eDate;
+      return matchStartDate && matchEndDate;
     });
   }, [ratings, startDate, endDate]);
 
@@ -28,8 +32,8 @@ export const CounterReport: React.FC<CounterReportProps> = ({ ratings, counters 
 
     const stats = counters.map((counter) => {
       const counterRatings = filteredRatingsByDate.filter((r) => 
-        matchesBranch(r.branchName, counter.branchName) || 
-        (r.counterId === counter.id && !r.branchName)
+        recordMatchesBranch(r, counter.id, counters) || 
+        recordMatchesBranch(r, counter.branchName, counters)
       );
       
       const total = counterRatings.length;

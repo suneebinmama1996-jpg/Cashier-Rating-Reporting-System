@@ -49,15 +49,231 @@ const RATINGS_KEY = 'cashier_rating_records_v1';
 const RECONCILIATIONS_KEY = 'cashier_rating_reconciliations_v1';
 
 export function normalizeBranchName(name: string | undefined): string {
-  if (!name) return 'Unknown';
-  // Remove NUNUH prefix, underscores, and extra spaces for comparison
-  return name.replace(/^NUNUH\s+/i, '').replace(/_/g, ' ').trim().toLowerCase();
+  if (!name) return 'unknown';
+  // Standardize branch names for reliable comparison across various formats (PATTANI, NUNUH_PATTANI, NUNUH PATTANI)
+  return name
+    .toString()
+    .replace(/[\s\u00A0\u200B_]+/g, ' ')
+    .replace(/^NUNUH\s*/i, '')
+    .trim()
+    .toLowerCase();
 }
 
-export function matchesBranch(recordBranch: string | undefined, filterBranch: string): boolean {
+export function cleanStr(s: string | undefined | null): string {
+  if (!s) return '';
+  return s.toString().replace(/[\s\u00A0\u200B_]+/g, ' ').trim().toLowerCase();
+}
+
+const DELETED_RATINGS_KEY = 'cashier_deleted_rating_ids_v1';
+
+export function getDeletedRatingIds(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(DELETED_RATINGS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function markRatingAsDeleted(id: string): void {
+  if (typeof window === 'undefined' || !id) return;
+  const deleted = getDeletedRatingIds();
+  deleted.add(id);
+  localStorage.setItem(DELETED_RATINGS_KEY, JSON.stringify(Array.from(deleted)));
+}
+
+const BRANCH_KEYWORD_GROUPS: string[][] = [
+  ['narathiwat', 'นราธิวาส'],
+  ['pattani', 'ปัตตานี'],
+  ['yala', 'ยะลา'],
+  ['hatyai', 'hat yai', 'หาดใหญ่'],
+  ['betong', 'เบตง'],
+  ['sungaikolok', 'sungai kolok', 'สุไหงโก-ลก'],
+  ['digital', 'ดิจิทัล'],
+  ['mistine', 'มิสทีน'],
+  ['krabi', 'กระบี่'],
+];
+
+export function matchesBranch(recordBranch: string | undefined | null, filterBranch: string | undefined | null): boolean {
+  if (!filterBranch || filterBranch === 'all' || filterBranch.trim() === '') return true;
   if (!recordBranch) return false;
-  if (filterBranch === 'all') return true;
-  return normalizeBranchName(recordBranch) === normalizeBranchName(filterBranch);
+  
+  const rRaw = cleanStr(recordBranch);
+  const fRaw = cleanStr(filterBranch);
+  
+  if (!fRaw || fRaw === 'all') return true;
+  if (!rRaw) return false;
+  if (rRaw === fRaw) return true;
+  
+  const normR = normalizeBranchName(recordBranch);
+  const normF = normalizeBranchName(filterBranch);
+  
+  if (!normF || normF === 'all') return true;
+  if (normR === normF) return true;
+
+  // Normalized substring check (avoiding single words like 'nunuh' from matching all branches)
+  if (normR && normF && normR !== 'unknown' && normF !== 'unknown') {
+    if (normR === normF) return true;
+    if (normR.length >= 3 && normF.length >= 3 && normR !== 'nunuh' && normF !== 'nunuh') {
+      if (normR.includes(normF) || normF.includes(normR)) return true;
+    }
+  }
+
+  // Cross-lingual keyword alias matching (e.g., NARATHIWAT <-> นราธิวาส)
+  for (const group of BRANCH_KEYWORD_GROUPS) {
+    const filterInGroup = group.some(kw => fRaw.includes(kw) || normF.includes(kw));
+    if (filterInGroup) {
+      const recordInGroup = group.some(kw => rRaw.includes(kw) || normR.includes(kw));
+      if (recordInGroup) return true;
+    }
+  }
+  
+  return false;
+}
+
+export function recordMatchesBranch(
+  r: RatingRecord,
+  filterBranch: string | undefined | null,
+  counters: Counter[] = []
+): boolean {
+  if (!r) return false;
+  if (!filterBranch || filterBranch === 'all' || filterBranch.trim() === '') {
+    return true;
+  }
+
+  const fBranch = filterBranch.trim();
+  if (cleanStr(fBranch) === 'all') return true;
+
+  // Combine passed counters with INITIAL_COUNTERS to ensure we always have complete catalog metadata
+  const allKnownCounters = [...counters, ...INITIAL_COUNTERS];
+
+  // 1. Collect all target filter values (e.g. if filterBranch is 'n-02', add 'NUNUH NARATHIWAT', 'n-02')
+  const filterTargets = new Set<string>();
+  filterTargets.add(fBranch);
+
+  allKnownCounters.forEach((c) => {
+    if (c.id === fBranch || cleanStr(c.id) === cleanStr(fBranch)) {
+      if (c.branchName) filterTargets.add(c.branchName);
+      if (c.name) filterTargets.add(c.name);
+      if (c.id) filterTargets.add(c.id);
+    } else if (
+      (c.branchName && matchesBranch(c.branchName, fBranch)) ||
+      (c.name && matchesBranch(c.name, fBranch))
+    ) {
+      if (c.branchName) filterTargets.add(c.branchName);
+      if (c.name) filterTargets.add(c.name);
+      if (c.id) filterTargets.add(c.id);
+    }
+  });
+
+  // 2. Collect all record values
+  const recordValues = new Set<string>();
+  if (r.branchName) recordValues.add(r.branchName);
+  if (r.counterName) recordValues.add(r.counterName);
+  if (r.cashierName) recordValues.add(r.cashierName);
+  if (r.counterId) recordValues.add(r.counterId);
+
+  // If record has counterId, find corresponding counter and add its branchName/name
+  if (r.counterId) {
+    allKnownCounters.forEach((c) => {
+      if (c.id === r.counterId || cleanStr(c.id) === cleanStr(r.counterId)) {
+        if (c.branchName) recordValues.add(c.branchName);
+        if (c.name) recordValues.add(c.name);
+      }
+    });
+  }
+
+  // 3. Test if ANY recordValue matches ANY filterTarget
+  for (const rVal of recordValues) {
+    for (const fTarget of filterTargets) {
+      if (cleanStr(rVal) === cleanStr(fTarget)) return true;
+      if (rVal === fTarget) return true;
+      if (matchesBranch(rVal, fTarget)) return true;
+      if (matchesBranch(fTarget, rVal)) return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Normalizes a timestamp or date string to YYYY-MM-DD for consistent comparison
+ * Uses Asia/Bangkok timezone to match local user expectations (+07:00)
+ */
+export function normalizeDate(dateStr: string | undefined): string {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) {
+      return dateStr.split('T')[0] || '';
+    }
+    
+    // Use Intl.DateTimeFormat to get parts for YYYY-MM-DD in Bangkok timezone
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Bangkok',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(d);
+    
+    const year = parts.find(p => p.type === 'year')?.value;
+    const month = parts.find(p => p.type === 'month')?.value;
+    const day = parts.find(p => p.type === 'day')?.value;
+    
+    return `${year}-${month}-${day}`;
+  } catch (e) {
+    return dateStr ? dateStr.split('T')[0] : '';
+  }
+}
+
+/**
+ * Checks if a timestamp falls within a start date and end date range (inclusive, 00:00:00 to 23:59:59.999 in Bangkok timezone +07:00)
+ */
+export function isRecordInDateRange(
+  timestampStr: string | undefined,
+  startDateStr: string | undefined | null,
+  endDateStr: string | undefined | null
+): boolean {
+  if (!timestampStr) return false;
+  
+  const sDate = startDateStr ? startDateStr.trim() : '';
+  const eDate = endDateStr ? endDateStr.trim() : '';
+
+  if (!sDate && !eDate) return true;
+
+  // 1. Date string check (YYYY-MM-DD in Asia/Bangkok timezone)
+  const rDateStr = normalizeDate(timestampStr);
+  if (sDate && rDateStr < sDate) return false;
+  if (eDate && rDateStr > eDate) return false;
+  
+  // 2. Epoch milliseconds check (00:00:00.000 to 23:59:59.999 Asia/Bangkok timezone)
+  try {
+    const d = new Date(timestampStr);
+    const t = d.getTime();
+    if (!isNaN(t)) {
+      if (sDate) {
+        const [sy, sm, sd] = sDate.split('-').map(Number);
+        if (sy && sm && sd) {
+          const startMs = Date.UTC(sy, sm - 1, sd, 0, 0, 0, 0) - (7 * 60 * 60 * 1000);
+          if (t < startMs) return false;
+        }
+      }
+      if (eDate) {
+        const [ey, em, ed] = eDate.split('-').map(Number);
+        if (ey && em && ed) {
+          const endMs = Date.UTC(ey, em - 1, ed, 23, 59, 59, 999) - (7 * 60 * 60 * 1000);
+          if (t > endMs) return false;
+        }
+      }
+    }
+  } catch (e) {
+    // fallback
+  }
+
+  return true;
 }
 
 async function fetchWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
@@ -217,14 +433,35 @@ export async function saveRatingRecord(created: RatingRecord): Promise<RatingRec
 }
 
 export async function deleteRatingRecord(id: string): Promise<void> {
-  const current = getStoredRatings();
-  const updated = current.filter((r) => r.id !== id);
-  localStorage.setItem(RATINGS_KEY, JSON.stringify(updated));
+  if (!id) return;
 
+  // 1. Permanently mark this ID as deleted locally so sync logic never restores it
+  markRatingAsDeleted(id);
+
+  // 2. Clean up from current storage AND all legacy local storage keys
+  const keys = [RATINGS_KEY, 'cashier_rating_records', 'ratings', 'records'];
+  for (const key of keys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const updated = parsed.filter((r: any) => r && r.id !== id);
+          localStorage.setItem(key, JSON.stringify(updated));
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // 3. Delete directly from Firestore
   try {
     await deleteDoc(doc(db, 'ratings', id));
+    console.log(`Rating document ${id} successfully deleted from Firestore.`);
   } catch (e) {
     console.error('Firestore delete rating record error:', e);
+    handleFirestoreError(e, OperationType.DELETE, `ratings/${id}`);
   }
 }
 
@@ -234,12 +471,15 @@ export function resetRatingsToSample(): RatingRecord[] {
 }
 
 export async function clearAllRatings(): Promise<void> {
-  localStorage.setItem(RATINGS_KEY, JSON.stringify([]));
+  const current = getStoredRatings();
+  current.forEach((r) => markRatingAsDeleted(r.id));
+
+  const keys = [RATINGS_KEY, 'cashier_rating_records', 'ratings', 'records'];
+  keys.forEach((k) => localStorage.setItem(k, JSON.stringify([])));
 
   try {
     const snapshot = await getDocs(collection(db, 'ratings'));
     if (snapshot.docs.length > 0) {
-      // Delete all documents in parallel
       const deletePromises = snapshot.docs.map((docSnap) => deleteDoc(docSnap.ref));
       await Promise.all(deletePromises);
     }
@@ -474,22 +714,31 @@ export function subscribeToRatings(
   let qRatings = query(collection(db, 'ratings'));
   
   const unsubscribeRatings = onSnapshot(qRatings, (snapshot) => {
+    const deletedIds = getDeletedRatingIds();
     const allFirestoreRecords: RatingRecord[] = [];
 
     snapshot.forEach((docSnap) => {
       const data = docSnap.data() as RatingRecord;
+      const recId = docSnap.id || data?.id;
+
+      // If document was marked deleted, ensure deleteDoc is executed on Firestore & ignore it
+      if (deletedIds.has(recId) || (data && deletedIds.has(data.id))) {
+        deleteDoc(doc(db, 'ratings', docSnap.id)).catch(() => {});
+        return;
+      }
+
       if (isRealRatingRecord(data)) {
         allFirestoreRecords.push(data);
       }
     });
 
-    // 1. Get current local records
-    const localRecords = getStoredRatings();
+    // 1. Get current local records (excluding any marked as deleted)
+    const localRecords = getStoredRatings().filter(r => r && !deletedIds.has(r.id));
     
     // 2. Merge logic: If Firestore has data, it's the source of truth for those records.
     // However, if we have local records NOT yet in Firestore, we should preserve them and upload them.
     const firestoreIds = new Set(allFirestoreRecords.map(r => r.id));
-    const pendingUpload = localRecords.filter(r => !firestoreIds.has(r.id));
+    const pendingUpload = localRecords.filter(r => !firestoreIds.has(r.id) && !deletedIds.has(r.id));
     
     // Upload pending records to Firestore
     if (pendingUpload.length > 0) {
@@ -506,12 +755,8 @@ export function subscribeToRatings(
     // 4. Save COMPLETE set to local storage (NEVER save a filtered subset)
     localStorage.setItem(RATINGS_KEY, JSON.stringify(combined));
 
-    // 5. Apply filtering ONLY for the UI callback
-    const filtered = branchFilter && branchFilter !== 'all' 
-      ? combined.filter(r => matchesBranch(r.branchName, branchFilter))
-      : combined;
-      
-    onRatingsUpdate(filtered);
+    // 5. Always emit 100% complete dataset so state is never truncated or lost
+    onRatingsUpdate(combined);
   }, (err) => {
     handleFirestoreError(err, OperationType.GET, ratingsPath);
   });
@@ -521,31 +766,61 @@ export function subscribeToRatings(
 
 // Format Thai Date string (e.g., "28 ก.ค. 2569")
 export function formatThaiDate(dateIsoStr: string, includeTime = false): string {
-  const d = new Date(dateIsoStr);
-  if (isNaN(d.getTime())) return '-';
-  const day = d.getDate();
-  const month = THAI_MONTHS_SHORT[d.getMonth()];
-  const year = d.getFullYear() + 543; // Buddhist Era
-  if (includeTime) {
-    const hours = String(d.getHours()).padStart(2, '0');
-    const mins = String(d.getMinutes()).padStart(2, '0');
-    return `${day} ${month} ${year} ${hours}:${mins} น.`;
+  try {
+    const d = new Date(dateIsoStr);
+    if (isNaN(d.getTime())) return '-';
+    
+    // Use Intl.DateTimeFormat for consistent Asia/Bangkok timezone handling
+    const options: Intl.DateTimeFormatOptions = {
+      timeZone: 'Asia/Bangkok',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    };
+    
+    if (includeTime) {
+      options.hour = '2-digit';
+      options.minute = '2-digit';
+      options.hour12 = false;
+    }
+    
+    const formatter = new Intl.DateTimeFormat('th-TH', options);
+    const parts = formatter.formatToParts(d);
+    
+    const day = parts.find(p => p.type === 'day')?.value;
+    const month = parts.find(p => p.type === 'month')?.value;
+    const yearVal = parts.find(p => p.type === 'year')?.value || '0';
+    
+    // Ensure Buddhist Era year (CE + 543)
+    let year = parseInt(yearVal);
+    if (year < 2400) year += 543;
+    
+    if (includeTime) {
+      const hour = parts.find(p => p.type === 'hour')?.value;
+      const minute = parts.find(p => p.type === 'minute')?.value;
+      return `${day} ${month} ${year} ${hour}:${minute} น.`;
+    }
+    
+    return `${day} ${month} ${year}`;
+  } catch (e) {
+    return dateIsoStr ? dateIsoStr.split('T')[0] : '-';
   }
-  return `${day} ${month} ${year}`;
 }
 
 // Aggregate Daily Stats for a given date range
-export function getDailyStats(ratings: RatingRecord[], startDateIso: string, endDateIso: string, counterId?: string): DailyStats[] {
+export function getDailyStats(ratings: RatingRecord[], startDateIso: string, endDateIso: string, counterId?: string, counters: Counter[] = []): DailyStats[] {
   const filtered = ratings.filter(r => {
-    const d = r.timestamp.slice(0, 10);
-    const matchCounter = !counterId || counterId === 'all' || r.counterId === counterId;
-    return d >= startDateIso && d <= endDateIso && matchCounter;
+    const d = normalizeDate(r.timestamp);
+    const matchCounter = !counterId || counterId === 'all' || r.counterId === counterId || recordMatchesBranch(r, counterId, counters);
+    const matchStartDate = !startDateIso || d >= startDateIso;
+    const matchEndDate = !endDateIso || d <= endDateIso;
+    return matchStartDate && matchEndDate && matchCounter;
   });
 
   const grouped: Record<string, DailyStats> = {};
 
   filtered.forEach(r => {
-    const dateKey = r.timestamp.slice(0, 10);
+    const dateKey = normalizeDate(r.timestamp);
     const dateObj = new Date(r.timestamp);
     const formatted = `${dateObj.getDate()} ${THAI_MONTHS_SHORT[dateObj.getMonth()]}`;
 
@@ -589,10 +864,10 @@ export function getDailyStats(ratings: RatingRecord[], startDateIso: string, end
 }
 
 // Aggregate Hourly Stats for a specific single day
-export function getHourlyStats(ratings: RatingRecord[], dateIso: string, counterId?: string): HourlyStats[] {
+export function getHourlyStats(ratings: RatingRecord[], dateIso: string, counterId?: string, counters: Counter[] = []): HourlyStats[] {
   const filtered = ratings.filter(r => {
-    const matchDate = r.timestamp.slice(0, 10) === dateIso;
-    const matchCounter = !counterId || counterId === 'all' || r.counterId === counterId;
+    const matchDate = normalizeDate(r.timestamp) === dateIso;
+    const matchCounter = !counterId || counterId === 'all' || r.counterId === counterId || recordMatchesBranch(r, counterId, counters);
     return matchDate && matchCounter;
   });
 
@@ -634,39 +909,54 @@ export function getHourlyStats(ratings: RatingRecord[], dateIso: string, counter
 }
 
 // Aggregate Monthly Stats
-export function getMonthlyStats(ratings: RatingRecord[], counterId?: string): MonthlyStats[] {
-  const filtered = ratings.filter(r => !counterId || counterId === 'all' || r.counterId === counterId);
+export function getMonthlyStats(ratings: RatingRecord[], counterId?: string, counters: Counter[] = []): MonthlyStats[] {
+  const filtered = ratings.filter(r => !counterId || counterId === 'all' || r.counterId === counterId || recordMatchesBranch(r, counterId, counters));
 
   const grouped: Record<string, MonthlyStats> = {};
 
   filtered.forEach(r => {
-    const monthKey = r.timestamp.slice(0, 7); // "YYYY-MM"
-    const [year, month] = monthKey.split('-').map(Number);
-    const monthIndex = month - 1;
-    const monthName = `${THAI_MONTHS_FULL[monthIndex]} ${year + 543}`;
+    try {
+      const d = new Date(r.timestamp);
+      if (isNaN(d.getTime())) return;
+      
+      // Normalize to Thai timezone for month grouping (YYYY-MM)
+      const monthKey = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric',
+        month: '2-digit'
+      }).format(d);
 
-    if (!grouped[monthKey]) {
-      grouped[monthKey] = {
-        monthKey,
-        monthName,
-        excellent: 0,
-        good: 0,
-        neutral: 0,
-        poor: 0,
-        very_poor: 0,
-        total: 0,
-        avgScore: 0,
-        satisfactionRate: 0,
-      };
+      const [yearStr, monthStr] = monthKey.split('-');
+      const year = parseInt(yearStr, 10);
+      const month = parseInt(monthStr, 10);
+      const monthIndex = month - 1;
+      const monthName = `${THAI_MONTHS_FULL[monthIndex]} ${year + 543}`;
+
+      if (!grouped[monthKey]) {
+        grouped[monthKey] = {
+          monthKey,
+          monthName,
+          excellent: 0,
+          good: 0,
+          neutral: 0,
+          poor: 0,
+          very_poor: 0,
+          total: 0,
+          avgScore: 0,
+          satisfactionRate: 0,
+        };
+      }
+
+      const item = grouped[monthKey];
+      item.total += 1;
+      if (r.level === 'excellent') item.excellent += 1;
+      else if (r.level === 'good') item.good += 1;
+      else if (r.level === 'neutral') item.neutral += 1;
+      else if (r.level === 'poor') item.poor += 1;
+      else if (r.level === 'very_poor') item.very_poor += 1;
+    } catch (e) {
+      console.warn('Error grouping monthly stat:', e);
     }
-
-    const item = grouped[monthKey];
-    item.total += 1;
-    if (r.level === 'excellent') item.excellent += 1;
-    else if (r.level === 'good') item.good += 1;
-    else if (r.level === 'neutral') item.neutral += 1;
-    else if (r.level === 'poor') item.poor += 1;
-    else if (r.level === 'very_poor') item.very_poor += 1;
   });
 
   return Object.values(grouped)
@@ -685,7 +975,7 @@ export function getMonthlyStats(ratings: RatingRecord[], counterId?: string): Mo
 
 // Export CSV with UTF-8 BOM so Thai text displays cleanly in MS Excel
 export function exportRatingsToCSV(ratings: RatingRecord[]): void {
-  const headers = ['ลำดับ', 'เลขออเดอร์/ใบเสร็จ', 'วัน-เวลา', 'ชื่อสาขา', 'พนักงานผู้ให้บริการ', 'ระดับการประเมิน', 'คะแนน (1-5)'];
+  const headers = ['ลำดับ', 'เลขออเดอร์/ใบเสร็จ', 'วัน-เวลา', 'สาขา / จุดบริการ', 'พนักงานผู้ให้บริการ', 'ระดับการประเมิน', 'คะแนน (1-5)'];
 
   const levelMap: Record<string, string> = {
     excellent: 'ดีมาก',
@@ -695,24 +985,30 @@ export function exportRatingsToCSV(ratings: RatingRecord[]): void {
     very_poor: 'แย่มาก',
   };
 
-  const rows = ratings.map((r, idx) => [
-    idx + 1,
-    `"${r.orderNumber || '-'}"`,
-    `"${formatThaiDate(r.timestamp, true)}"`,
-    `"${r.counterName}"`,
-    `"${r.cashierName}"`,
-    `"${levelMap[r.level] || r.level}"`,
-    r.score,
-  ]);
+  const rows = ratings.map((r, idx) => {
+    let branchInfo = r.branchName || r.counterName || '-';
+    if (r.branchName && r.counterName && r.branchName !== r.counterName) {
+      branchInfo = `${r.branchName} (${r.counterName})`;
+    }
+    return [
+      idx + 1,
+      `"${r.orderNumber || '-'}"`,
+      `"${formatThaiDate(r.timestamp, true)}"`,
+      `"${branchInfo}"`,
+      `"${r.cashierName || '-'}"`,
+      `"${levelMap[r.level] || r.level}"`,
+      r.score,
+    ];
+  });
 
   const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
 
-  // Add UTF-8 BOM \uFEFF
+  // Add UTF-8 BOM \uFEFF for Excel Thai support
   const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.setAttribute('download', `รายงานการประเมินพนักงาน_${new Date().toISOString().slice(0, 10)}.csv`);
+  link.setAttribute('download', `รายงานการประเมิน_${new Date().toISOString().slice(0, 10)}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

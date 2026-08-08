@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { RatingRecord, Counter, SystemSettings, POSReconciliation } from '../types';
+import { matchesBranch, recordMatchesBranch } from '../utils/storage';
 import { DailyReportGraph } from './DailyReportGraph';
 import { MonthlyReportGraph } from './MonthlyReportGraph';
 import { CounterReport } from './CounterReport';
@@ -8,6 +9,7 @@ import { OrderReconciliation } from './OrderReconciliation';
 import { CounterManagementModal } from './CounterManagementModal';
 import { SystemSettingsModal } from './SystemSettingsModal';
 import { THEMES } from '../constants/theme';
+import { DEFAULT_BRANCHES } from '../constants/ratingOptions';
 import { useFirestoreStatus } from '../hooks/useFirestoreStatus';
 import {
   BarChart2,
@@ -66,24 +68,48 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isSystemSettingsOpen, setIsSystemSettingsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  useEffect(() => {
+    if (branchFilter !== undefined && branchFilter !== null) {
+      setSelectedBranch(branchFilter || 'all');
+    }
+  }, [branchFilter]);
+
   const theme = THEMES[settings.themeColor] || THEMES.teal;
 
   const handlePrint = () => {
     window.print();
   };
 
+  const availableBranches = useMemo(() => {
+    const set = new Set<string>();
+    // Always include standard NUNUH branches
+    DEFAULT_BRANCHES.forEach((b) => set.add(b));
+
+    counters.forEach((c) => {
+      if (c.branchName && c.branchName.trim()) {
+        const matched = DEFAULT_BRANCHES.find((db) => matchesBranch(c.branchName, db));
+        set.add(matched || c.branchName.trim());
+      }
+    });
+
+    ratings.forEach((r) => {
+      if (r.branchName && r.branchName.trim()) {
+        const matched = DEFAULT_BRANCHES.find((db) => matchesBranch(r.branchName, db));
+        set.add(matched || r.branchName.trim());
+      }
+    });
+
+    return Array.from(set).sort();
+  }, [counters, ratings]);
+
   const filteredRatings = useMemo(() => {
     if (!selectedBranch || selectedBranch === 'all') return ratings;
-    return ratings.filter((r) => {
-      if (r.branchName) return r.branchName === selectedBranch;
-      const c = counters.find((counter) => counter.id === r.counterId);
-      return c?.branchName === selectedBranch;
-    });
+    return ratings.filter((r) => recordMatchesBranch(r, selectedBranch, counters));
   }, [ratings, counters, selectedBranch]);
 
   const filteredCounters = useMemo(() => {
     if (!selectedBranch || selectedBranch === 'all') return counters;
-    return counters.filter((c) => c.branchName === selectedBranch);
+    return counters.filter((c) => matchesBranch(c.branchName, selectedBranch));
   }, [counters, selectedBranch]);
 
   const { isOnline, lastSync } = useFirestoreStatus();
@@ -159,7 +185,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   }`}
                 >
                   {!branchFilter && <option value="all">ทุกสาขา (All Branches)</option>}
-                  {Array.from(new Set(counters.map(c => c.branchName))).filter(Boolean).map((b) => (
+                  {availableBranches.map((b) => (
                     <option key={b} value={b}>{b}</option>
                   ))}
                 </select>
@@ -205,7 +231,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
 
                 <button
-                  onClick={() => window.location.hash = 'links'}
+                  onClick={() => {
+                    if (selectedBranch && selectedBranch !== 'all') {
+                      window.location.hash = `links?branch=${encodeURIComponent(selectedBranch)}`;
+                    } else {
+                      window.location.hash = 'links';
+                    }
+                  }}
                   className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-xl text-xs font-bold transition shadow-sm border border-indigo-500/30"
                   title="สร้างลิงก์สำหรับส่งให้ลูกค้าประเมินออนไลน์"
                 >
@@ -311,15 +343,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* Main Content Area */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-        {activeTab === 'daily' && <DailyReportGraph ratings={filteredRatings} counters={counters} />}
-        {activeTab === 'monthly' && <MonthlyReportGraph ratings={filteredRatings} counters={counters} />}
+        {activeTab === 'daily' && <DailyReportGraph ratings={filteredRatings} counters={filteredCounters} />}
+        {activeTab === 'monthly' && <MonthlyReportGraph ratings={filteredRatings} counters={filteredCounters} />}
         {activeTab === 'counter' && <CounterReport ratings={filteredRatings} counters={filteredCounters} />}
         {activeTab === 'reconcile' && (
           <OrderReconciliation
             ratings={filteredRatings}
             allRatings={ratings}
             reconciliations={reconciliations}
-            counters={counters}
+            counters={filteredCounters}
             settings={settings}
             selectedBranch={selectedBranch}
           />
@@ -328,9 +360,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <RawDataLog
             ratings={filteredRatings}
             allRatings={ratings}
-            counters={counters}
+            counters={filteredCounters}
             onResetData={onResetData}
             onClearData={onClearData}
+            selectedBranch={selectedBranch}
           />
         )}
       </main>

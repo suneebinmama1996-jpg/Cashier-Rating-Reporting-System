@@ -24,8 +24,8 @@ export const MonthlyReportGraph: React.FC<MonthlyReportGraphProps> = ({ ratings,
   const [selectedCounter, setSelectedCounter] = React.useState<string>('all');
 
   const monthlyData = useMemo(() => {
-    return getMonthlyStats(ratings, selectedCounter);
-  }, [ratings, selectedCounter]);
+    return getMonthlyStats(ratings, selectedCounter, counters);
+  }, [ratings, selectedCounter, counters]);
 
   const totalMonthlyVotes = monthlyData.reduce((acc, curr) => acc + curr.total, 0);
   const overallAvgScore =

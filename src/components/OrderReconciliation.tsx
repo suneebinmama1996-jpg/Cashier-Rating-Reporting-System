@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { RatingRecord, Counter, SystemSettings, POSReconciliation } from '../types';
 import { THEMES } from '../constants/theme';
-import { saveReconciliationRecord, formatThaiDate } from '../utils/storage';
+import { saveReconciliationRecord, formatThaiDate, recordMatchesBranch, matchesBranch } from '../utils/storage';
 import {
   Upload,
   FileCheck,
@@ -250,11 +250,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
   const filteredRatings = useMemo(() => {
     let list = ratings;
     if (selectedBranch && selectedBranch !== 'all') {
-      list = list.filter((r) => {
-        if (r.branchName) return r.branchName === selectedBranch;
-        const c = counters.find((counter) => counter.id === r.counterId);
-        return c?.branchName === selectedBranch;
-      });
+      list = list.filter((r) => recordMatchesBranch(r, selectedBranch, counters));
     }
     if (selectedDate) {
       list = list.filter((r) => r.timestamp.startsWith(selectedDate));
@@ -496,7 +492,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
   const filteredHistory = useMemo(() => {
     let list = reconciliations;
     if (selectedBranch && selectedBranch !== 'all') {
-      list = list.filter(r => r.branchName === selectedBranch);
+      list = list.filter(r => matchesBranch(r.branchName, selectedBranch));
     }
     if (selectedDate) {
       list = list.filter(r => r.date === selectedDate);

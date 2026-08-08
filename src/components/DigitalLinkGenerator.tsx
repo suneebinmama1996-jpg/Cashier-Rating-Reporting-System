@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Link2, Copy, Check, ExternalLink, User, Receipt, Globe, Share2, Info, ArrowLeft } from 'lucide-react';
 import { Counter, SystemSettings } from '../types';
+import { matchesBranch } from '../utils/storage';
 
 interface DigitalLinkGeneratorProps {
   counters: Counter[];
@@ -26,16 +27,22 @@ export const DigitalLinkGenerator: React.FC<DigitalLinkGeneratorProps> = ({ coun
 
   // Set default branch if not selected
   React.useEffect(() => {
-    if (!selectedBranch && branches.length > 0) {
-      if (defaultBranch && branches.includes(defaultBranch)) {
-        setSelectedBranch(defaultBranch);
-      } else {
+    if (branches.length > 0) {
+      if (defaultBranch) {
+        const found = branches.find(b => matchesBranch(b, defaultBranch));
+        if (found) {
+          setSelectedBranch(found);
+          return;
+        }
+      }
+      
+      if (!selectedBranch) {
         // Prefer "Digital" or "Online" branch if exists
         const digitalBranch = branches.find(b => b.toLowerCase().includes('digital') || b.toLowerCase().includes('online'));
         setSelectedBranch(digitalBranch || branches[0]);
       }
     }
-  }, [branches, selectedBranch, defaultBranch]);
+  }, [branches, defaultBranch]);
 
   const publicSharedBaseUrl = 'https://ais-pre-te4rx6pbwev3sufbtfprfp-628779573343.asia-southeast1.run.app/';
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';

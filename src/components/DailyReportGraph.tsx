@@ -22,11 +22,10 @@ interface DailyReportGraphProps {
 }
 
 export const DailyReportGraph: React.FC<DailyReportGraphProps> = ({ ratings, counters }) => {
-  // Date states (default to All Time - starting from a year ago to today)
+  // Date states (default to All Time - starting from empty to today)
   const todayIso = new Date().toISOString().slice(0, 10);
-  const defaultStartIso = '2024-01-01'; // Default to All Time starting from 2024
 
-  const [startDate, setStartDate] = useState(defaultStartIso);
+  const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState(todayIso);
   const [selectedCounter, setSelectedCounter] = useState<string>('all');
   const [viewType, setViewType] = useState<'daily' | 'hourly'>('daily');
@@ -34,13 +33,13 @@ export const DailyReportGraph: React.FC<DailyReportGraphProps> = ({ ratings, cou
 
   // Daily aggregated dataset
   const dailyData = useMemo(() => {
-    return getDailyStats(ratings, startDate, endDate, selectedCounter);
-  }, [ratings, startDate, endDate, selectedCounter]);
+    return getDailyStats(ratings, startDate, endDate, selectedCounter, counters);
+  }, [ratings, startDate, endDate, selectedCounter, counters]);
 
   // Hourly aggregated dataset
   const hourlyData = useMemo(() => {
-    return getHourlyStats(ratings, singleDayForHourly, selectedCounter);
-  }, [ratings, singleDayForHourly, selectedCounter]);
+    return getHourlyStats(ratings, singleDayForHourly, selectedCounter, counters);
+  }, [ratings, singleDayForHourly, selectedCounter, counters]);
 
   // Calculations for summary metrics
   const totalVotes = dailyData.reduce((acc, curr) => acc + curr.total, 0);
@@ -57,8 +56,8 @@ export const DailyReportGraph: React.FC<DailyReportGraphProps> = ({ ratings, cou
 
   // Quick preset filter
   const handlePresetDays = (days: number) => {
-    const end = new Date('2026-07-28').toISOString().slice(0, 10);
-    const start = new Date(new Date('2026-07-28').getTime() - (days - 1) * 24 * 60 * 60 * 1000)
+    const end = new Date().toISOString().slice(0, 10);
+    const start = new Date(new Date().getTime() - (days - 1) * 24 * 60 * 60 * 1000)
       .toISOString()
       .slice(0, 10);
     setStartDate(start);

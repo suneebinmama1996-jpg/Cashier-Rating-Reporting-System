@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { RatingRecord, Counter, RatingLevel } from '../types';
-import { formatThaiDate, exportRatingsToCSV, deleteRatingRecord } from '../utils/storage';
+import { formatThaiDate, exportRatingsToCSV, deleteRatingRecord, normalizeDate, recordMatchesBranch, isRecordInDateRange, cleanStr } from '../utils/storage';
 import { RATING_OPTIONS } from '../constants/ratingOptions';
 import { Download, Search, Filter, RefreshCw, Trash2, FileSpreadsheet, X, Clock, AlertTriangle } from 'lucide-react';
 
@@ -10,6 +10,7 @@ interface RawDataLogProps {
   counters: Counter[];
   onResetData: () => void;
   onClearData: () => void;
+  selectedBranch?: string;
 }
 
 export const RawDataLog: React.FC<RawDataLogProps> = ({
@@ -18,6 +19,7 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
   counters,
   onResetData,
   onClearData,
+  selectedBranch = 'all',
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterLevel, setFilterLevel] = useState<string>('all');
@@ -26,6 +28,44 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
   const [endDate, setEndDate] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
+
+  useEffect(() => {
+    setFilterCounter('all');
+    setCurrentPage(1);
+  }, [selectedBranch]);
+
+  // Generate clean dropdown options for counter/branch filter
+  const filterOptions = useMemo(() => {
+    const list: { id: string; label: string }[] = [];
+    const seenLabels = new Set<string>();
+
+    counters.forEach((c) => {
+      const branchName = c.branchName?.trim();
+      const counterName = c.name?.trim();
+      let label = counterName || branchName || c.id;
+      if (branchName && counterName && branchName !== counterName) {
+        label = `${counterName} (${branchName})`;
+      }
+      list.push({ id: c.id, label });
+      if (branchName) seenLabels.add(cleanStr(branchName));
+      if (counterName) seenLabels.add(cleanStr(counterName));
+    });
+
+    // Add unique branches from ratings that might not have counter objects
+    const extraRatings = allRatings.length > 0 ? allRatings : ratings;
+    extraRatings.forEach((r) => {
+      const bName = r.branchName?.trim() || r.counterName?.trim();
+      if (bName) {
+        const cleaned = cleanStr(bName);
+        if (!seenLabels.has(cleaned)) {
+          seenLabels.add(cleaned);
+          list.push({ id: bName, label: bName });
+        }
+      }
+    });
+
+    return list;
+  }, [counters, ratings, allRatings]);
 
   // Calculate duplicate frequencies for order numbers (check against ALL ratings for global detection)
   const orderFrequencies = useMemo(() => {
@@ -41,27 +81,51 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
   }, [ratings, allRatings]);
 
   const filtered = useMemo(() => {
+    const sDate = startDate || '';
+    const eDate = endDate || '';
+    const sTerm = searchTerm.toLowerCase().trim();
+
     return ratings.filter((r) => {
-      const matchSearch =
-        r.counterName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.cashierName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (r.orderNumber && r.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()));
+      // 1. Search Match (including branch name and counter name)
+      const matchSearch = sTerm === '' ||
+        (r.counterName && r.counterName.toLowerCase().includes(sTerm)) ||
+        (r.cashierName && r.cashierName.toLowerCase().includes(sTerm)) ||
+        (r.orderNumber && r.orderNumber.toLowerCase().includes(sTerm)) ||
+        (r.branchName && r.branchName.toLowerCase().includes(sTerm));
+
+      // 2. Level Match
       const matchLevel = filterLevel === 'all' || r.level === filterLevel;
-      const matchCounter = filterCounter === 'all' || r.counterId === filterCounter;
+
+      // 3. Counter / Branch Match using smart recordMatchesBranch
+      const matchCounter = filterCounter === 'all' || recordMatchesBranch(r, filterCounter, counters);
       
-      const rDate = r.timestamp.split('T')[0];
-      const matchStartDate = !startDate || rDate >= startDate;
-      const matchEndDate = !endDate || rDate <= endDate;
+      // 4. Date Match (00:00:00 to 23:59:59 in Asia/Bangkok timezone)
+      const matchDate = isRecordInDateRange(r.timestamp, sDate, eDate);
 
-      return matchSearch && matchLevel && matchCounter && matchStartDate && matchEndDate;
+      return matchSearch && matchLevel && matchCounter && matchDate;
     });
-  }, [ratings, searchTerm, filterLevel, filterCounter, startDate, endDate]);
+  }, [ratings, searchTerm, filterLevel, filterCounter, startDate, endDate, counters]);
 
-  const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
+  const isFiltered = useMemo(() => {
+    return (
+      searchTerm !== '' || 
+      filterLevel !== 'all' || 
+      filterCounter !== 'all' || 
+      startDate !== '' || 
+      endDate !== '' || 
+      (selectedBranch !== 'all' && selectedBranch !== '')
+    );
+  }, [searchTerm, filterLevel, filterCounter, startDate, endDate, selectedBranch]);
+
+  const totalPages = isFiltered ? 1 : (Math.ceil(filtered.length / itemsPerPage) || 1);
   const paginated = useMemo(() => {
+    // Show all matching items when any filter or branch filter is active
+    if (isFiltered) {
+      return filtered;
+    }
     const start = (currentPage - 1) * itemsPerPage;
     return filtered.slice(start, start + itemsPerPage);
-  }, [filtered, currentPage]);
+  }, [filtered, currentPage, isFiltered]);
 
   const getOptionByLevel = (level: RatingLevel) => {
     return RATING_OPTIONS.find((o) => o.level === level) || RATING_OPTIONS[0];
@@ -107,7 +171,7 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
             </select>
           </div>
 
-          {/* Counter Filter */}
+          {/* Counter / Branch Filter */}
           <select
             value={filterCounter}
             onChange={(e) => {
@@ -116,10 +180,10 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
             }}
             className="border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
           >
-            <option value="all">ทุกสาขา</option>
-            {counters.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
+            <option value="all">ทุกจุดบริการ / ทุกสาขา</option>
+            {filterOptions.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
               </option>
             ))}
           </select>
@@ -196,8 +260,8 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
               <tr>
                 <th className="px-4 py-3">เลขออเดอร์/ใบเสร็จ</th>
                 <th className="px-4 py-3">วัน-เวลาประเมิน</th>
-                <th className="px-4 py-3">สาขา</th>
-                <th className="px-4 py-3">พนักงานพนักงาน</th>
+                <th className="px-4 py-3">สาขา / จุดบริการ</th>
+                <th className="px-4 py-3">พนักงานผู้ให้บริการ</th>
                 <th className="px-4 py-3 text-center">ระดับผลการประเมิน</th>
                 <th className="px-4 py-3 text-center">คะแนน</th>
                 <th className="px-4 py-3 text-center">ลบ</th>
@@ -227,8 +291,21 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
                       <td className="px-4 py-3 font-medium text-slate-600 whitespace-nowrap">
                         {formatThaiDate(r.timestamp, true)}
                       </td>
-                      <td className="px-4 py-3 font-semibold text-slate-800">{r.counterName}</td>
-                      <td className="px-4 py-3 text-slate-600">{r.cashierName}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-800">
+                        {r.branchName ? (
+                          r.counterName && r.branchName !== r.counterName ? (
+                            <div>
+                              <div className="font-bold text-slate-800">{r.branchName}</div>
+                              <div className="text-[10px] text-slate-500 font-normal">{r.counterName}</div>
+                            </div>
+                          ) : (
+                            r.branchName
+                          )
+                        ) : (
+                          r.counterName || '-'
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{r.cashierName || '-'}</td>
                       <td className="px-4 py-3 text-center">
                         <span className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold ${opt.textColor} bg-slate-50 border border-slate-200`}>
                           <span>{opt.emoji}</span>
@@ -240,13 +317,17 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
                       </td>
                       <td className="px-4 py-3 text-center">
                         <button
-                          onClick={() => {
-                            if (window.confirm('คุณต้องการลบรายการประเมินนี้ใช่หรือไม่?')) {
-                              deleteRatingRecord(r.id);
+                          onClick={async () => {
+                            if (window.confirm('คุณต้องการลบรายการประเมินนี้ออกจากฐานข้อมูลถาวรใช่หรือไม่?')) {
+                              try {
+                                await deleteRatingRecord(r.id);
+                              } catch (err) {
+                                console.error('Failed to delete rating:', err);
+                              }
                             }
                           }}
-                          className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-rose-50 transition"
-                          title="ลบรายการนี้"
+                          className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition"
+                          title="ลบรายการนี้ถาวร"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

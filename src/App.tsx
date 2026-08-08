@@ -23,7 +23,10 @@ import {
   fetchConfigFromFirestore,
   getStoredReconciliations,
   subscribeToReconciliations,
+  matchesBranch,
+  recordMatchesBranch,
 } from './utils/storage';
+import { RefreshCw } from 'lucide-react';
 
 export default function App() {
   // 1. Initial State from URL
@@ -55,7 +58,26 @@ export default function App() {
   const [settings, setSettings] = useState<SystemSettings>(getStoredSettings());
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   
+  // Sync URL params with local filters
+  useEffect(() => {
+    const handleUrlChange = () => {
+      const { branch, counter } = getInitialFilters();
+      if (branch !== branchFilter) setBranchFilter(branch);
+      if (counter !== counterFilter) setCounterFilter(counter);
+    };
+
+    window.addEventListener('popstate', handleUrlChange);
+    // Also listen for hash changes that might contain query params
+    window.addEventListener('hashchange', handleUrlChange);
+    
+    return () => {
+      window.removeEventListener('popstate', handleUrlChange);
+      window.removeEventListener('hashchange', handleUrlChange);
+    };
+  }, [branchFilter, counterFilter]);
+
   // URL Auth Bypass Logic
   const isBranchAdminLink = (branchFilter && branchFilter !== 'all') || counterFilter;
 
@@ -83,14 +105,21 @@ export default function App() {
   };
 
   const handleRefreshRatings = async () => {
-    // 1. Fetch Ratings
-    const fetchedRatings = await fetchRatingsFromFirestore();
-    setRatings(fetchedRatings);
-    
-    // 2. Fetch Config (Counters & Settings)
-    const { counters: fetchedCounters, settings: fetchedSettings } = await fetchConfigFromFirestore();
-    setCounters(fetchedCounters);
-    setSettings(fetchedSettings);
+    setIsLoading(true);
+    try {
+      // 1. Fetch Ratings
+      const fetchedRatings = await fetchRatingsFromFirestore();
+      setRatings(fetchedRatings);
+      
+      // 2. Fetch Config (Counters & Settings)
+      const { counters: fetchedCounters, settings: fetchedSettings } = await fetchConfigFromFirestore();
+      setCounters(fetchedCounters);
+      setSettings(fetchedSettings);
+    } catch (e) {
+      console.error('Refresh failed:', e);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -147,26 +176,42 @@ export default function App() {
   // 3. Computed Data with safety checks
   const filteredCounters = useMemo(() => {
     if (!counters) return [];
-    if (branchFilter) {
-      const branchC = counters.filter(c => c.branchName === branchFilter);
-      if (branchC.length > 0) return branchC;
-      // Fallback for branch URL even if no counters exist yet
-      return [{ id: `b-url-${branchFilter}`, name: branchFilter, cashierName: '-', branchName: branchFilter, isOnline: true }];
+    
+    let result = counters;
+    if (branchFilter && branchFilter !== 'all') {
+      result = result.filter(c => matchesBranch(c.branchName, branchFilter));
+      if (result.length === 0) {
+        return [{ id: `b-url-${branchFilter}`, name: branchFilter, cashierName: '-', branchName: branchFilter, isOnline: true }];
+      }
     }
-    if (counterFilter) return counters.filter(c => c.id === counterFilter);
-    return counters;
+    if (counterFilter && counterFilter !== 'all') {
+      result = result.filter(c => c.id === counterFilter);
+    }
+    return result;
   }, [counters, branchFilter, counterFilter]);
 
   const filteredRatings = useMemo(() => {
     if (!ratings) return [];
-    if (branchFilter) return ratings.filter(r => r.branchName === branchFilter);
-    if (counterFilter) return ratings.filter(r => r.counterId === counterFilter);
-    return ratings;
-  }, [ratings, branchFilter, counterFilter]);
+    return ratings.filter((r) => {
+      // 1. Branch Filter
+      if (branchFilter && branchFilter !== 'all') {
+        if (!recordMatchesBranch(r, branchFilter, counters)) return false;
+      }
+      
+      // 2. Counter Filter
+      if (counterFilter && counterFilter !== 'all') {
+        if (r.counterId !== counterFilter) return false;
+      }
+      
+      return true;
+    });
+  }, [ratings, branchFilter, counterFilter, counters]);
 
   const filteredReconciliations = useMemo(() => {
     if (!reconciliations) return [];
-    if (branchFilter && branchFilter !== 'all') return reconciliations.filter(r => r.branchName === branchFilter);
+    if (branchFilter && branchFilter !== 'all') {
+      return reconciliations.filter(r => matchesBranch(r.branchName, branchFilter));
+    }
     return reconciliations;
   }, [reconciliations, branchFilter]);
 
@@ -236,6 +281,28 @@ export default function App() {
     }
   };
 
+  if (isLoading && counters.length === 0) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-teal-200 border-t-teal-600 rounded-full animate-spin"></div>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <RefreshCw className="w-6 h-6 text-teal-600 opacity-20" />
+          </div>
+        </div>
+        <h2 className="mt-6 text-xl font-bold text-slate-800">กำลังเชื่อมต่อฐานข้อมูล...</h2>
+        <p className="mt-2 text-slate-500 text-sm">โปรดรอสักครู่ ระบบกำลังดึงข้อมูลล่าสุดของสาขา NUNUH</p>
+        <button 
+          onClick={handleRefreshRatings}
+          className="mt-8 px-6 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 transition shadow-sm flex items-center space-x-2"
+        >
+          <RefreshCw className="w-4 h-4" />
+          <span>ลองใหม่อีกครั้ง (Retry)</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 font-sans antialiased text-slate-800 selection:bg-teal-500 selection:text-white">
       {viewMode === 'kiosk' ? (
@@ -257,9 +324,9 @@ export default function App() {
         />
       ) : viewMode === 'admin' ? (
         <AdminDashboard
-          ratings={filteredRatings}
+          ratings={ratings}
           reconciliations={reconciliations}
-          counters={filteredCounters}
+          counters={counters}
           settings={settings}
           branchFilter={branchFilter}
           counterFilter={counterFilter}
