@@ -318,7 +318,7 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
                       <td className="px-4 py-3 text-center">
                         <button
                           onClick={async () => {
-                            if (window.confirm('คุณต้องการลบรายการประเมินนี้ออกจากฐานข้อมูลถาวรใช่หรือไม่?')) {
+                            if (window.confirm('ต้องการลบรายการประเมินนี้ออกจากรายงานใช่หรือไม่? (ระบบจะเก็บไว้เป็นหลักฐานการตรวจสอบ แต่ไม่นับในรายงาน)')) {
                               try {
                                 await deleteRatingRecord(r.id);
                               } catch (err) {
@@ -327,7 +327,7 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
                             }
                           }}
                           className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition"
-                          title="ลบรายการนี้ถาวร"
+                          title="ลบออกจากรายงาน (เก็บไว้เป็นหลักฐาน)"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

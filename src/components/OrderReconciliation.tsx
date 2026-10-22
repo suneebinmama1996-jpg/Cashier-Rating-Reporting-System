@@ -2,7 +2,8 @@ import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { RatingRecord, Counter, SystemSettings, POSReconciliation } from '../types';
 import { THEMES } from '../constants/theme';
-import { saveReconciliationRecord, formatThaiDate, recordMatchesBranch, matchesBranch } from '../utils/storage';
+import { saveReconciliationRecord, formatThaiDate, recordMatchesBranch, matchesBranch, isRecordInDateRange } from '../utils/storage';
+import { checkRating, findBursts, parsePosTime, IntegrityFlag, DEFAULT_INTEGRITY_OPTIONS } from '../utils/integrity';
 import {
   Upload,
   FileCheck,
@@ -19,6 +20,7 @@ import {
   UserX,
   Clock,
   Camera,
+  ShieldAlert,
 } from 'lucide-react';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 
@@ -53,6 +55,19 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
   const [notes, setNotes] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
   const [viewMode, setViewMode] = useState<'reconcile' | 'history'>('reconcile');
+  const [lateMinutes, setLateMinutes] = useState<number>(() => {
+    try {
+      const v = Number(localStorage.getItem('pos_late_minutes_v1'));
+      return v > 0 ? v : DEFAULT_INTEGRITY_OPTIONS.lateMinutes;
+    } catch {
+      return DEFAULT_INTEGRITY_OPTIONS.lateMinutes;
+    }
+  });
+  const updateLateMinutes = (v: number) => {
+    const n = Math.max(1, Math.round(v) || DEFAULT_INTEGRITY_OPTIONS.lateMinutes);
+    setLateMinutes(n);
+    try { localStorage.setItem('pos_late_minutes_v1', String(n)); } catch { /* ignore */ }
+  };
 
   const theme = THEMES[settings.themeColor] || THEMES.pink;
 
@@ -253,7 +268,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
       list = list.filter((r) => recordMatchesBranch(r, selectedBranch, counters));
     }
     if (selectedDate) {
-      list = list.filter((r) => r.timestamp.startsWith(selectedDate));
+      list = list.filter((r) => isRecordInDateRange(r.timestamp, selectedDate, selectedDate));
     }
     return list;
   }, [ratings, counters, selectedBranch, selectedDate]);
@@ -337,6 +352,49 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
     };
   }, [posOrdersList, evaluatedMap, filteredRatings]);
 
+  // Integrity checks: compare each rating with its POS bill time, server time and neighbours
+  const integrityById = useMemo(() => {
+    const result = new Map<string, IntegrityFlag[]>();
+    const posLoaded = posOrdersList.length > 0;
+    const posSet = new Set(posOrdersList.map((o) => o.trim().toUpperCase()));
+    const posTimeMs = new Map<string, number>();
+    posRecords.forEach((p) => {
+      const t = parsePosTime(p.orderTime, selectedDate || undefined);
+      if (t !== undefined) posTimeMs.set(p.orderNumber.trim().toUpperCase(), t);
+    });
+    const orderCount = new Map<string, number>();
+    allRatings.forEach((r) => {
+      if (r.orderNumber && r.orderNumber.trim()) {
+        const k = r.orderNumber.trim().toUpperCase();
+        orderCount.set(k, (orderCount.get(k) || 0) + 1);
+      }
+    });
+    const opts = { ...DEFAULT_INTEGRITY_OPTIONS, lateMinutes };
+    const bursts = findBursts(filteredRatings, opts.burstSeconds);
+    filteredRatings.forEach((r) => {
+      const key = (r.orderNumber || '').trim().toUpperCase();
+      const flags = checkRating(
+        r,
+        {
+          posLoaded,
+          inPos: !!key && posSet.has(key),
+          posTimeMs: key ? posTimeMs.get(key) : undefined,
+          isDuplicate: !!key && (orderCount.get(key) || 0) > 1,
+          burstSize: bursts.get(r.id),
+        },
+        opts
+      );
+      if (flags.length > 0) result.set(r.id, flags);
+    });
+    return result;
+  }, [filteredRatings, allRatings, posRecords, posOrdersList, selectedDate, lateMinutes]);
+
+  const suspiciousRatings = useMemo(() => {
+    return filteredRatings
+      .filter((r) => integrityById.has(r.id))
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  }, [filteredRatings, integrityById]);
+
   // Combined List for Display Table
   const tableRows = useMemo(() => {
     if (posOrdersList.length === 0) return [];
@@ -408,7 +466,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
     if (posOrdersList.length === 0) return;
 
     let csvContent = '\uFEFF'; // UTF-8 BOM
-    csvContent += 'เลขออเดอร์ภายใน (POS),เวลาสั่งซื้อจากระบบ,สถานะการประเมิน,สาขา,พนักงาน,คะแนนความพึงพอใจ,ระดับความพึงพอใจ,วัน-เวลาประเมิน\n';
+    csvContent += 'เลขออเดอร์ภายใน (POS),เวลาสั่งซื้อจากระบบ,สถานะการประเมิน,สาขา,พนักงาน,คะแนนความพึงพอใจ,ระดับความพึงพอใจ,วัน-เวลาประเมิน,ผลตรวจความน่าเชื่อถือ\n';
 
     tableRows.forEach((row) => {
       const order = `"${row.orderNumber.replace(/"/g, '""')}"`;
@@ -420,7 +478,9 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
       const level = row.rating ? `"${row.rating.level}"` : '-';
       const time = row.rating ? `"${new Date(row.rating.timestamp).toLocaleString('th-TH')}"` : '-';
 
-      csvContent += `${order},${posTime},${status},${counter},${cashier},${score},${level},${time}\n`;
+      const flags = row.rating ? integrityById.get(row.rating.id) || [] : [];
+      const flagText = `"${flags.map((f) => (f.detail ? `${f.label} (${f.detail})` : f.label)).join(' / ').replace(/"/g, '""') || '-'}"`;
+      csvContent += `${order},${posTime},${status},${counter},${cashier},${score},${level},${time},${flagText}\n`;
     });
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -756,6 +816,80 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
         </div>
       )}
 
+          {/* Suspicious ratings: possibly added by staff instead of the customer */}
+          {posOrdersList.length > 0 && (
+            <div className="bg-slate-800 rounded-2xl border border-amber-500/30 p-5 space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                    <ShieldAlert className="w-5 h-5 text-amber-400" />
+                    <span>ใบประเมินที่น่าสงสัย ({suspiciousRatings.length.toLocaleString()} ใบ)</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    เทียบเวลาที่กดประเมินกับเวลาออกบิล POS, เวลาที่ข้อมูลขึ้นเซิร์ฟเวอร์ และการกดรัวจากเคาน์เตอร์/เครื่องเดียวกัน
+                    เพื่อหาใบที่อาจไม่ได้ให้ลูกค้ากดเอง
+                  </p>
+                </div>
+                <label className="flex items-center space-x-2 bg-slate-900/80 p-2 rounded-xl border border-slate-700 text-xs text-slate-300 shrink-0">
+                  <span className="font-bold">ประเมินช้าเกิน</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={lateMinutes}
+                    onChange={(e) => updateLateMinutes(Number(e.target.value))}
+                    className="w-16 bg-slate-800 text-white px-2 py-1 rounded-lg border border-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  <span>นาทีหลังออกบิล</span>
+                </label>
+              </div>
+              {suspiciousRatings.length > 0 ? (
+                <div className="overflow-x-auto rounded-xl border border-slate-700 max-h-96 overflow-y-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead className="sticky top-0">
+                      <tr className="bg-slate-900 text-slate-300 font-bold border-b border-slate-700">
+                        <th className="py-2.5 px-3">เวลาประเมิน</th>
+                        <th className="py-2.5 px-3">เลขบิล</th>
+                        <th className="py-2.5 px-3">สาขา / พนักงาน</th>
+                        <th className="py-2.5 px-3 text-center">คะแนน</th>
+                        <th className="py-2.5 px-3">ช่องทาง</th>
+                        <th className="py-2.5 px-3">สิ่งที่พบ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700/60 text-slate-200">
+                      {suspiciousRatings.map((r) => (
+                        <tr key={r.id} className="hover:bg-slate-700/40">
+                          <td className="py-2.5 px-3 font-mono text-[11px] whitespace-nowrap">
+                            {new Date(r.timestamp).toLocaleString('th-TH')}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono font-bold">{r.orderNumber || '-'}</td>
+                          <td className="py-2.5 px-3">
+                            <div className="font-bold text-white">{r.cashierName}</div>
+                            <div className="text-[11px] text-slate-400">{r.counterName}</div>
+                          </td>
+                          <td className="py-2.5 px-3 text-center">⭐ {r.score}</td>
+                          <td className="py-2.5 px-3 text-[11px] text-slate-400">
+                            {r.source === 'link' ? 'ลิงก์ออนไลน์' : r.source === 'kiosk' ? 'จอหน้าเคาน์เตอร์' : '-'}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <FlagChips flags={integrityById.get(r.id)} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3">
+                  ไม่พบใบประเมินที่น่าสงสัยในช่วงที่เลือก
+                </div>
+              )}
+              <p className="text-[10px] text-slate-500">
+                * ธงเป็นสัญญาณให้ตรวจต่อ ไม่ใช่ข้อสรุปว่าทุจริต เช่น เน็ตหลุดทำให้ข้อมูลขึ้นระบบช้าได้
+                · ใบประเมินที่บันทึกก่อนอัปเดตระบบนี้จะไม่มีเวลาเซิร์ฟเวอร์ จึงตรวจได้เฉพาะเวลาบิลและการกดรัว
+              </p>
+            </div>
+          )}
+
           {/* Main Reconciliation Table */}
           {posOrdersList.length > 0 ? (
             <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden space-y-4 p-5">
@@ -830,6 +964,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
                       <th className="py-3 px-4">สาขา / พนักงาน</th>
                       <th className="py-3 px-4 text-center">คะแนนการประเมิน</th>
                       <th className="py-3 px-4">เวลาประเมิน</th>
+                      <th className="py-3 px-4">ผลตรวจความน่าเชื่อถือ</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700/60 text-slate-200">
@@ -907,11 +1042,18 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
                               <span className="text-slate-500">-</span>
                             )}
                           </td>
+                          <td className="py-3 px-4">
+                            {row.rating ? (
+                              <FlagChips flags={integrityById.get(row.rating.id)} />
+                            ) : (
+                              <span className="text-slate-500">-</span>
+                            )}
+                          </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={7} className="py-8 text-center text-slate-400">
+                        <td colSpan={8} className="py-8 text-center text-slate-400">
                           ไม่พบเลขออเดอร์ตรงกับเงื่อนไขการค้นหา
                         </td>
                       </tr>
@@ -1083,6 +1225,30 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
           }
         }}
       />
+    </div>
+  );
+};
+
+const FlagChips: React.FC<{ flags?: IntegrityFlag[] }> = ({ flags }) => {
+  if (!flags || flags.length === 0) {
+    return <span className="text-emerald-400 text-[11px] font-bold">ปกติ</span>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {flags.map((f) => (
+        <span
+          key={f.code}
+          title={f.detail || f.label}
+          className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+            f.severity === 'high'
+              ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+              : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+          }`}
+        >
+          {f.label}
+          {f.detail ? ` · ${f.detail}` : ''}
+        </span>
+      ))}
     </div>
   );
 };

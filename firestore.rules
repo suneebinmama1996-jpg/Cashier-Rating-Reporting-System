@@ -18,10 +18,19 @@ service cloud.firestore {
 
     // Ratings collection
     match /ratings/{ratingId} {
-      // Anyone can submit a rating (if valid)
-      allow create: if isValidRating(request.resource.data);
-      // For now, allow read/write for recovery. In production, this should be restricted to admin.
-      allow read, update, delete: if true; 
+      allow read: if true;
+      // New ratings must carry the server's own clock (serverTime) so the
+      // submit time cannot be back-dated by changing the device clock.
+      allow create: if isValidRating(request.resource.data)
+                    && request.resource.data.serverTime == request.time
+                    && !('voided' in request.resource.data);
+      // Ratings cannot be edited or deleted. An admin can only void one,
+      // which hides it from reports but keeps it for audit.
+      allow update: if request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['voided', 'voidedAt'])
+                    && request.resource.data.voided == true
+                    && request.resource.data.voidedAt == request.time;
+      allow delete: if false;
     }
 
     // Config collection (counters & settings)

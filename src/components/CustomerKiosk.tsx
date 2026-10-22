@@ -5,6 +5,7 @@ import { RATING_OPTIONS } from '../constants/ratingOptions';
 import { RatingOption, Counter, RatingRecord, SystemSettings } from '../types';
 import { THEMES } from '../constants/theme';
 import { soundManager } from '../utils/sound';
+import { getDeviceId } from '../utils/storage';
 import { Heart, ThumbsUp, Sparkles, CheckCircle2, Volume2, VolumeX, Store, Receipt, Lock, Maximize, Minimize, Camera, Globe } from 'lucide-react';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 
@@ -37,6 +38,8 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
   const theme = THEMES[settings.themeColor] || THEMES.teal;
   
   const [urlCashierName, setUrlCashierName] = useState<string>('');
+  // true when opened from a per-order online link (?pos= / ?staff=), not the counter screen
+  const [isLinkMode, setIsLinkMode] = useState(false);
 
   // Cashier Order Number State
   const [orderNumber, setOrderNumber] = useState<string>('');
@@ -79,12 +82,14 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
         const orderParam = params.get('order') || params.get('orderNumber') || params.get('pos');
         if (orderParam) {
           setOrderNumber(orderParam.trim());
+          setIsLinkMode(true);
         }
 
         // Handle Cashier/Staff Name if provided in URL (overrides counter default)
         const staffParam = params.get('staff') || params.get('cashier') || params.get('emp');
         if (staffParam && staffParam.trim()) {
           setUrlCashierName(staffParam.trim());
+          setIsLinkMode(true);
         }
       }
     } catch {
@@ -123,6 +128,8 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
       score: option.score,
       level: option.level,
       timestamp: new Date().toISOString(),
+      deviceId: getDeviceId(),
+      source: isLinkMode ? 'link' : 'kiosk',
     } as RatingRecord);
 
     // Reset order number input for next customer
