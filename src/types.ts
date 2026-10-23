@@ -37,6 +37,7 @@ export interface Counter {
   name: string;
   cashierName: string;
   branchName: string; // สาขา
+  cashiers?: string[]; // รายชื่อแคชเชียร์ของสาขา ให้เลือกในหน้าประเมิน
   isOnline: boolean;
   isFallbackError?: boolean;
 }

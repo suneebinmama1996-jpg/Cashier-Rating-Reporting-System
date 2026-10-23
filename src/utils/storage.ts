@@ -468,6 +468,11 @@ export function getStoredRatings(): RatingRecord[] {
   }
 }
 
+// POS number in one comparable form: no spaces or dashes, upper case
+export function normalizeOrderNumber(s?: string): string {
+  return (s || '').trim().toUpperCase().replace(/[\s-]/g, '');
+}
+
 export async function saveRatingRecord(created: RatingRecord): Promise<RatingRecord> {
   const current = getStoredRatings();
   const updated = [created, ...current];

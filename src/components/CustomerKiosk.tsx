@@ -5,8 +5,8 @@ import { RATING_OPTIONS } from '../constants/ratingOptions';
 import { RatingOption, Counter, RatingRecord, SystemSettings } from '../types';
 import { THEMES } from '../constants/theme';
 import { soundManager } from '../utils/sound';
-import { getDeviceId } from '../utils/storage';
-import { Heart, ThumbsUp, Sparkles, CheckCircle2, Volume2, VolumeX, Store, Receipt, Lock, Maximize, Minimize, Camera, Globe } from 'lucide-react';
+import { getDeviceId, normalizeOrderNumber } from '../utils/storage';
+import { UserRound, AlertTriangle, Heart, ThumbsUp, Sparkles, CheckCircle2, Volume2, VolumeX, Store, Receipt, Lock, Maximize, Minimize, Camera, Globe } from 'lucide-react';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 interface CustomerKioskProps {
@@ -17,6 +17,25 @@ interface CustomerKioskProps {
   onNewRatingSubmitted: (rating: RatingRecord) => void;
   onOpenAdmin?: () => void;
   onOpenShareModal?: () => void;
+  usedOrders?: Set<string>; // POS numbers that already have a rating
+}
+
+const CASHIER_KEY = 'kiosk_selected_cashier_v1';
+function loadCashier(counterId: string): string {
+  try {
+    return JSON.parse(localStorage.getItem(CASHIER_KEY) || '{}')[counterId] || '';
+  } catch {
+    return '';
+  }
+}
+function storeCashier(counterId: string, name: string) {
+  try {
+    const all = JSON.parse(localStorage.getItem(CASHIER_KEY) || '{}');
+    all[counterId] = name;
+    localStorage.setItem(CASHIER_KEY, JSON.stringify(all));
+  } catch {
+    // storage unavailable: the choice just won't be remembered
+  }
 }
 
 export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
@@ -27,6 +46,7 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
   onNewRatingSubmitted,
   onOpenAdmin,
   onOpenShareModal,
+  usedOrders,
 }) => {
   const [selectedRating, setSelectedRating] = useState<RatingOption | null>(null);
   const [isThankYouShown, setIsThankYouShown] = useState(false);
@@ -46,6 +66,32 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [lastSubmittedOrder, setLastSubmittedOrder] = useState<string>('');
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Cashier on duty: chosen once per shift and remembered on this device
+  const cashierList = (activeCounter.cashiers || []).filter((n) => n && n.trim());
+  const [cashier, setCashier] = useState<string>(() => loadCashier(activeCounter.id));
+  const [notice, setNotice] = useState<string>('');
+  useEffect(() => {
+    setCashier(loadCashier(activeCounter.id));
+  }, [activeCounter.id]);
+  const chooseCashier = (name: string) => {
+    setCashier(name);
+    storeCashier(activeCounter.id, name);
+    setNotice('');
+  };
+  // A remembered name that was later removed from the list no longer counts
+  const effectiveCashier = urlCashierName || (cashierList.length ? (cashierList.includes(cashier) ? cashier : '') : cashier.trim());
+  const orderKey = normalizeOrderNumber(orderNumber);
+  const isDuplicateOrder = !!orderKey && !!usedOrders && usedOrders.has(orderKey);
+  const t = (th: string, en: string) => (language === 'th' ? th : en);
+  const blockReason = !orderKey
+    ? t('กรุณาใส่เลข POS ก่อนประเมิน', 'Please enter the POS number first')
+    : isDuplicateOrder
+      ? t(`เลข POS ${orderNumber.trim()} ประเมินไปแล้ว บันทึกซ้ำไม่ได้`, `POS ${orderNumber.trim()} has already been rated`)
+      : !effectiveCashier
+        ? t('กรุณาเลือกชื่อแคชเชียร์ก่อนประเมิน', 'Please choose the cashier first')
+        : '';
+  const canRate = !activeCounter.isFallbackError && !blockReason;
 
   useEffect(() => {
     soundManager.setSoundEnabled(soundEnabled);
@@ -98,6 +144,11 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
   }, []);
 
   const handleRatingClick = (option: RatingOption) => {
+    if (blockReason) {
+      setNotice(blockReason);
+      return;
+    }
+    setNotice('');
     setSelectedRating(option);
     setIsThankYouShown(true);
 
@@ -122,9 +173,9 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
       id: `r-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       counterId: activeCounter.id,
       counterName: activeCounter.name,
-      cashierName: urlCashierName || activeCounter.cashierName,
+      cashierName: effectiveCashier,
       branchName: activeCounter.branchName || activeCounter.name,
-      orderNumber: currentOrder,
+      orderNumber: currentOrder.replace(/\s+/g, ''),
       score: option.score,
       level: option.level,
       timestamp: new Date().toISOString(),
@@ -238,7 +289,7 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
             <input
               type="text"
               value={orderNumber}
-              onChange={(e) => setOrderNumber(e.target.value)}
+              onChange={(e) => { setOrderNumber(e.target.value); setNotice(''); }}
               placeholder={language === 'th' ? 'ระบุเลขออเดอร์...' : 'Enter Order ID...'}
               className={`bg-white border border-slate-300 rounded-l-lg px-3 py-1.5 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:ring-2 ${theme.accentRing} w-32 sm:w-44 text-center`}
             />
@@ -343,7 +394,7 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
                     <input
                       type="text"
                       value={orderNumber}
-                      onChange={(e) => setOrderNumber(e.target.value)}
+                      onChange={(e) => { setOrderNumber(e.target.value); setNotice(''); }}
                       placeholder={language === 'th' ? 'กรอกเลขออเดอร์ POS' : 'Enter Order ID'}
                       className="bg-slate-800 border border-slate-600 rounded-l-lg px-2.5 py-1 text-xs sm:text-sm font-bold text-pink-300 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-pink-500 flex-1 min-w-0"
                     />
@@ -366,6 +417,41 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
                     </button>
                   )}
                 </div>
+
+                {/* Cashier picker (required) */}
+                {!urlCashierName && !activeCounter.isFallbackError && (
+                  <div className="flex items-center justify-center gap-2 bg-slate-900 text-white text-xs sm:text-sm px-4 py-2 rounded-2xl shadow-sm -mt-4 mb-4 border border-slate-700 max-w-md w-full">
+                    <UserRound className="w-4 h-4 text-pink-400 shrink-0" />
+                    <span className="shrink-0 font-medium text-slate-300">{t('แคชเชียร์:', 'Cashier:')}</span>
+                    {cashierList.length > 0 ? (
+                      <select
+                        value={cashierList.includes(cashier) ? cashier : ''}
+                        onChange={(e) => chooseCashier(e.target.value)}
+                        className={`flex-1 min-w-0 bg-slate-800 border rounded-lg px-2.5 py-1 font-bold focus:outline-none focus:ring-2 focus:ring-pink-500 ${effectiveCashier ? 'text-pink-300 border-slate-600' : 'text-slate-400 border-rose-500'}`}
+                      >
+                        <option value="">{t('— เลือกชื่อแคชเชียร์ —', '— Choose cashier —')}</option>
+                        {cashierList.map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={cashier}
+                        onChange={(e) => chooseCashier(e.target.value)}
+                        placeholder={t('พิมพ์ชื่อแคชเชียร์', 'Type cashier name')}
+                        className={`flex-1 min-w-0 bg-slate-800 border rounded-lg px-2.5 py-1 font-bold text-pink-300 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-pink-500 ${effectiveCashier ? 'border-slate-600' : 'border-rose-500'}`}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {(notice || isDuplicateOrder) && (
+                  <div role="alert" className="flex items-center gap-2 bg-rose-50 text-rose-700 border border-rose-200 px-4 py-2 rounded-xl text-sm font-bold mb-4">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>{isDuplicateOrder ? t(`เลข POS ${orderNumber.trim()} ประเมินไปแล้ว บันทึกซ้ำไม่ได้`, `POS ${orderNumber.trim()} has already been rated`) : notice}</span>
+                  </div>
+                )}
 
                 {/* Main Question Header matching photo */}
                 {activeCounter.isFallbackError ? (
@@ -396,7 +482,8 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
                       whileHover={{ scale: activeCounter.isFallbackError ? 1 : 1.1, y: activeCounter.isFallbackError ? 0 : -8 }}
                       whileTap={{ scale: activeCounter.isFallbackError ? 1 : 0.92 }}
                       onClick={() => !activeCounter.isFallbackError && handleRatingClick(option)}
-                      className={`group flex flex-col items-center focus:outline-none ${activeCounter.isFallbackError ? 'opacity-50 cursor-not-allowed grayscale' : 'cursor-pointer'}`}
+                      aria-disabled={!canRate}
+                      className={`group flex flex-col items-center focus:outline-none ${activeCounter.isFallbackError ? 'opacity-50 cursor-not-allowed grayscale' : canRate ? 'cursor-pointer' : 'opacity-40 grayscale cursor-not-allowed'}`}
                     >
                       {/* Facial Expression Icon Circle */}
                       <div
@@ -464,7 +551,7 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
       <BarcodeScannerModal
         isOpen={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
-        onScanSuccess={(code) => setOrderNumber(code)}
+        onScanSuccess={(code) => { setOrderNumber(code); setNotice(''); }}
       />
 
       {/* Footer Branding Bar */}
