@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Counter, SystemSettings } from '../types';
-import { Store, Plus, Trash2, X, Building, Copy, Check, ExternalLink, Link2, UserRound } from 'lucide-react';
+import { Counter, SystemSettings, CashierEntry } from '../types';
+import { cashierEntries, mergeCashiers, parseCashierFile, branchMatches, downloadCashierTemplate, CashierImportRow } from '../utils/cashiers';
+import { Store, Plus, Trash2, X, Building, Copy, Check, ExternalLink, Link2, UserRound, FileSpreadsheet, Upload } from 'lucide-react';
 
 interface CounterManagementModalProps {
   isOpen: boolean;
@@ -24,6 +25,8 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
   const [recentlyAddedBranch, setRecentlyAddedBranch] = useState<string | null>(null);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [cashierDraft, setCashierDraft] = useState<Record<string, string>>({});
+  const [codeDraft, setCodeDraft] = useState<Record<string, string>>({});
+  const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Sync list when counters prop changes
   React.useEffect(() => {
@@ -71,8 +74,8 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
     onSaveCounters(updated);
   };
 
-  const updateCashiers = (id: string, names: string[]) => {
-    const updated = list.map((c) => (c.id === id ? { ...c, cashiers: names } : c));
+  const updateCashiers = (id: string, entries: CashierEntry[]) => {
+    const updated = list.map((c) => (c.id === id ? { ...c, cashiers: entries } : c));
     setList(updated);
     onSaveCounters(updated);
   };
@@ -83,10 +86,59 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
       .map((n) => n.trim())
       .filter(Boolean);
     if (!names.length) return;
-    const current = c.cashiers || [];
-    const merged = [...current, ...names.filter((n) => !current.includes(n))];
-    updateCashiers(c.id, merged);
+    const code = (codeDraft[c.id] || '').trim();
+    // a code only makes sense for a single name
+    const incoming = names.map((name) => ({ name, ...(code && names.length === 1 ? { code } : {}) }));
+    updateCashiers(c.id, mergeCashiers(cashierEntries(c), incoming));
     setCashierDraft((d) => ({ ...d, [c.id]: '' }));
+    setCodeDraft((d) => ({ ...d, [c.id]: '' }));
+  };
+
+  /**
+   * Excel import. With a branch column, each row goes to the branch it names
+   * (only that branch when importing from a branch's own button).
+   * Without one, rows go to the branch whose button was used.
+   */
+  const handleImport = async (file: File | undefined, only?: Counter) => {
+    if (!file) return;
+    setImportMsg(null);
+    let rows: CashierImportRow[] = [];
+    try {
+      rows = await parseCashierFile(file);
+    } catch {
+      setImportMsg({ ok: false, text: 'อ่านไฟล์ไม่ได้ กรุณาใช้ไฟล์ .xlsx, .xls หรือ .csv' });
+      return;
+    }
+    if (!rows.length) {
+      setImportMsg({ ok: false, text: 'ไม่พบรายชื่อในไฟล์ ต้องมีคอลัมน์ "ชื่อแคชเชียร์" (ดาวน์โหลดไฟล์ตัวอย่างได้)' });
+      return;
+    }
+    const hasBranch = rows.some((r) => r.branch);
+    if (!hasBranch && !only) {
+      setImportMsg({ ok: false, text: 'ไฟล์ไม่มีคอลัมน์ "สาขา" กรุณาใส่คอลัมน์สาขา หรือกดนำเข้าจากปุ่มของแต่ละสาขา' });
+      return;
+    }
+    const targets = only ? [only] : list;
+    const added: Record<string, CashierEntry[]> = {};
+    let unmatched = 0;
+    rows.forEach((r) => {
+      const c = r.branch ? targets.find((t) => branchMatches(t, r.branch!)) : only;
+      if (!c) {
+        if (!only) unmatched++;
+        return;
+      }
+      (added[c.id] = added[c.id] || []).push({ name: r.name, ...(r.code ? { code: r.code } : {}) });
+    });
+    const ids = Object.keys(added);
+    if (!ids.length) {
+      setImportMsg({ ok: false, text: only ? `ไม่มีแถวของสาขา ${only.name} ในไฟล์` : 'ชื่อสาขาในไฟล์ไม่ตรงกับสาขาในระบบ' });
+      return;
+    }
+    const updated = list.map((c) => (added[c.id] ? { ...c, cashiers: mergeCashiers(cashierEntries(c), added[c.id]) } : c));
+    setList(updated);
+    onSaveCounters(updated);
+    const parts = ids.map((id) => `${list.find((c) => c.id === id)?.name} ${added[id].length} คน`);
+    setImportMsg({ ok: true, text: `นำเข้าแล้ว: ${parts.join(', ')}` + (unmatched ? ` · ข้าม ${unmatched} แถวที่ชื่อสาขาไม่ตรง` : '') });
   };
 
   const handleCopy = (url: string, key: string) => {
@@ -209,6 +261,28 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
             </div>
           )}
 
+          {/* Cashier Excel import (all branches) */}
+          <div className="bg-pink-50/60 p-4 rounded-2xl border border-pink-200 space-y-2.5">
+            <h4 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              นำเข้ารายชื่อแคชเชียร์จาก Excel (ทุกสาขาในไฟล์เดียว)
+            </h4>
+            <p className="text-[11px] text-slate-500">คอลัมน์: สาขา · รหัสพนักงาน (ไม่บังคับ ใช้สแกนบัตร) · ชื่อแคชเชียร์ — ชื่อที่มีอยู่แล้วจะไม่ซ้ำ ถ้ามีรหัสใหม่จะอัปเดตให้</p>
+            <div className="flex flex-wrap gap-2">
+              <label className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition">
+                <Upload className="w-3.5 h-3.5" />
+                เลือกไฟล์ Excel
+                <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { handleImport(e.target.files?.[0]); e.target.value = ''; }} />
+              </label>
+              <button onClick={() => downloadCashierTemplate(list)} className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold transition">
+                ดาวน์โหลดไฟล์ตัวอย่าง
+              </button>
+            </div>
+            {importMsg && (
+              <div className={`text-xs font-semibold ${importMsg.ok ? 'text-emerald-700' : 'text-rose-600'}`}>{importMsg.text}</div>
+            )}
+          </div>
+
           {/* Current List with Instant Copy Links */}
           <div className="space-y-2">
             <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
@@ -255,17 +329,23 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
                   <div className="bg-slate-50 rounded-xl border border-slate-200 p-2.5 space-y-2">
                     <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
                       <UserRound className="w-3.5 h-3.5 text-pink-600" />
-                      <span>แคชเชียร์ของสาขานี้ ({(c.cashiers || []).length})</span>
+                      <span className="flex-1">แคชเชียร์ของสาขานี้ ({cashierEntries(c).length})</span>
+                      <label className="flex items-center gap-1 text-emerald-700 hover:text-emerald-900 cursor-pointer font-bold" title="นำเข้าจาก Excel เฉพาะสาขานี้">
+                        <FileSpreadsheet className="w-3.5 h-3.5" />
+                        นำเข้า Excel
+                        <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { handleImport(e.target.files?.[0], c); e.target.value = ''; }} />
+                      </label>
                     </div>
-                    {(c.cashiers || []).length > 0 ? (
+                    {cashierEntries(c).length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
-                        {(c.cashiers || []).map((n) => (
-                          <span key={n} className="inline-flex items-center gap-1 bg-white border border-slate-300 rounded-full pl-2.5 pr-1 py-0.5 text-xs font-semibold text-slate-700">
-                            {n}
+                        {cashierEntries(c).map((n) => (
+                          <span key={n.name} className="inline-flex items-center gap-1 bg-white border border-slate-300 rounded-full pl-2.5 pr-1 py-0.5 text-xs font-semibold text-slate-700">
+                            {n.code && <span className="font-mono text-[10px] text-slate-400">{n.code}</span>}
+                            {n.name}
                             <button
-                              onClick={() => updateCashiers(c.id, (c.cashiers || []).filter((x) => x !== n))}
+                              onClick={() => updateCashiers(c.id, cashierEntries(c).filter((x) => x.name !== n.name))}
                               className="text-slate-400 hover:text-rose-600 px-1"
-                              title={`ลบ ${n}`}
+                              title={`ลบ ${n.name}`}
                             >
                               ✕
                             </button>
@@ -276,6 +356,13 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
                       <div className="text-[11px] text-amber-700">ยังไม่มีรายชื่อ หน้าประเมินจะให้พิมพ์ชื่อเองแทนการเลือก</div>
                     )}
                     <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={codeDraft[c.id] || ''}
+                        onChange={(e) => setCodeDraft((d) => ({ ...d, [c.id]: e.target.value }))}
+                        placeholder="รหัส"
+                        className="w-20 border border-slate-300 rounded-lg px-2 py-1 text-xs bg-white font-mono focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
                       <input
                         type="text"
                         value={cashierDraft[c.id] || ''}

@@ -57,6 +57,8 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
   const [posInputText, setPosInputText] = useState<string>('');
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [uploadedFileName, setUploadedFileName] = useState<string>('');
+  // true when the list was copied from the ratings themselves, not from a POS file
+  const [fromSystem, setFromSystem] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]); 
   const [activeFilter, setActiveFilter] = useState<'all' | 'missing' | 'matched'>('all');
@@ -86,6 +88,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
     if (!file) return;
 
     setUploadedFileName(file.name);
+    setFromSystem(false);
     const ext = file.name.split('.').pop()?.toLowerCase();
 
     if (ext === 'xlsx' || ext === 'xls' || ext === 'ods') {
@@ -252,6 +255,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
 
   const handleTextareaChange = (text: string) => {
     setPosInputText(text);
+    setFromSystem(false);
     parseTextToPosRecords(text);
   };
 
@@ -298,16 +302,12 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
       alert('ไม่พบเลขออเดอร์ในระบบการประเมินตามช่วงเวลาที่เลือก');
       return;
     }
-    const records: PosRecord[] = availableSystemOrders.map(o => {
-      const match = filteredRatings.find(r => r.orderNumber?.trim().toUpperCase() === o.toUpperCase());
-      return {
-        orderNumber: o,
-        orderTime: match ? new Date(match.timestamp).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : undefined
-      };
-    });
+    // No bill time here: these numbers come from the ratings, so any time would be the rating time
+    const records: PosRecord[] = availableSystemOrders.map(o => ({ orderNumber: o }));
+    setFromSystem(true);
     setPosRecords(records);
     setPosInputText(records.map(r => r.orderNumber).join('\n'));
-    setUploadedFileName(`ดึงจากระบบประเมิน (${availableSystemOrders.length} ออเดอร์)`);
+    setUploadedFileName(`เลขจากใบประเมิน ไม่ใช่ POS (${availableSystemOrders.length})`);
   };
 
   // Map of evaluated order numbers (case-insensitive key) -> RatingRecord
@@ -500,7 +500,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
   };
 
   const handleSaveReport = async () => {
-    if (posOrdersList.length === 0) return;
+    if (posOrdersList.length === 0 || fromSystem) return;
     if (!selectedBranch || selectedBranch === 'all') {
       alert('กรุณาเลือกสาขาก่อนบันทึกรายงาน');
       return;
@@ -692,10 +692,10 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
           <div>
             <div className="flex items-center space-x-2 text-white font-bold text-sm">
               <RefreshCw className="w-4 h-4 text-teal-400" />
-              <span>วิธีที่ 2: ดึงจากระบบประเมินโดยตรง</span>
+              <span>วิธีที่ 2: ดูเลขที่มีใบประเมิน (ไม่ใช่ข้อมูล POS)</span>
             </div>
             <p className="text-xs text-slate-400 mt-1">
-              ดึงเลขออเดอร์ทั้งหมดที่มีการบันทึกในระบบ {selectedDate ? `ประจำวันที่ ${selectedDate}` : 'ทุกช่วงเวลา'}
+              ใช้ดูรายการเลขที่ลูกค้าประเมิน {selectedDate ? `วันที่ ${selectedDate}` : 'ทุกช่วงเวลา'} เท่านั้น เพราะเทียบกับตัวเองจะตรงกัน 100% เสมอ ถ้าจะกระทบจริงต้องใช้ไฟล์ POS (วิธีที่ 1) หรือแท็บกระทบแบบประเมินในใบปิดยอด
             </p>
           </div>
           <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700 text-center space-y-2">
@@ -707,7 +707,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
               className="w-full bg-teal-600 hover:bg-teal-500 text-white py-2 rounded-xl text-xs font-bold transition shadow-sm flex items-center justify-center space-x-1.5"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>ดึงเลขออเดอร์จากในระบบทั้งหมด</span>
+              <span>แสดงเลขจากใบประเมิน</span>
             </button>
           </div>
           <div className="text-[11px] text-slate-500 text-center">
@@ -749,6 +749,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
                 onClick={() => {
                   setPosInputText('');
                   setUploadedFileName('');
+                  setFromSystem(false);
                 }}
                 className="text-rose-400 hover:underline font-semibold"
               >
@@ -959,6 +960,16 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
                 </div>
               </div>
 
+              {fromSystem && (
+                <div className="mb-3 flex items-start gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-200 rounded-xl px-4 py-3 text-xs">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                  <span>
+                    รายการนี้เป็นเลขจากใบประเมินเอง <strong>ไม่ใช่ข้อมูล POS</strong> จึงตรงกัน 100% เสมอ และไม่มีเวลาออกบิล
+                    ใช้ดูรายการได้ แต่ใช้ตรวจว่าตกหล่นหรือประเมินย้อนหลังไม่ได้ และบันทึกเป็นรายงานถาวรไม่ได้
+                  </span>
+                </div>
+              )}
+
               {/* Table */}
               <div className="overflow-x-auto rounded-xl border border-slate-700">
                 <table className="w-full text-left border-collapse text-xs">
@@ -1081,7 +1092,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
                   <div className="flex flex-col justify-end">
                     <button
                       onClick={handleSaveReport}
-                      disabled={isSaving || posOrdersList.length === 0}
+                      disabled={isSaving || posOrdersList.length === 0 || fromSystem}
                       className="w-full bg-pink-600 hover:bg-pink-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-pink-900/20 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
                     >
                       {isSaving ? <RefreshCw className="w-5 h-5 animate-spin" /> : <FileCheck className="w-5 h-5" />}
@@ -1111,7 +1122,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
                     className="bg-teal-600 hover:bg-teal-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition shadow flex items-center justify-center space-x-2 mx-auto"
                   >
                     <RefreshCw className="w-4 h-4 animate-spin-once" />
-                    <span>กดดึงเลขออเดอร์ที่ประเมินแล้วในระบบ ({availableSystemOrders.length} รายการ) มากระทบยอดทันที</span>
+                    <span>ดูเลขจากใบประเมิน ({availableSystemOrders.length} รายการ) · ไม่ใช่ข้อมูล POS</span>
                   </button>
                 </div>
               )}
