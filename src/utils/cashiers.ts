@@ -118,7 +118,7 @@ export async function parseCashierFile(file: File): Promise<CashierImportRow[]> 
 }
 
 // Thai branch names people may type in a sheet, mapped to the English words used in counter names
-const BRANCH_TH: Record<string, string> = {
+export const BRANCH_TH: Record<string, string> = {
   'ปัตตานี': 'PATTANI', 'นราธิวาส': 'NARATHIWAT', 'ยะลา': 'YALA', 'หาดใหญ่': 'HATYAI',
   'ดิจิตอล': 'DIGITAL', 'ดิจิทัล': 'DIGITAL', 'มิสทีน': 'MISTINE', 'กระบี่': 'KRABI', 'เดอะมอลล์': 'THE MALL',
 };

@@ -23,6 +23,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
+import { AutoPosCheck } from './AutoPosCheck';
 import { RATING_OPTIONS } from '../constants/ratingOptions';
 
 const RATING_BY_LEVEL = new Map(RATING_OPTIONS.map((o) => [o.level as string, o]));
@@ -569,6 +570,9 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
+      {/* Automatic check against POS bills from the closing report */}
+      <AutoPosCheck ratings={ratings} />
+
       {/* Header Banner */}
       <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
