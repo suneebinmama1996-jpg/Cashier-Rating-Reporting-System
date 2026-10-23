@@ -23,6 +23,15 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
+import { RATING_OPTIONS } from '../constants/ratingOptions';
+
+const RATING_BY_LEVEL = new Map(RATING_OPTIONS.map((o) => [o.level as string, o]));
+const BKK_MS = 7 * 60 * 60 * 1000;
+// Rating time in Bangkok as HH:MM:SS
+function timeOnly(ts: string): string {
+  const t = Date.parse(ts);
+  return isNaN(t) ? '–' : new Date(t + BKK_MS).toISOString().slice(11, 19);
+}
 
 interface OrderReconciliationProps {
   ratings: RatingRecord[];
@@ -399,25 +408,25 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
   const tableRows = useMemo(() => {
     if (posOrdersList.length === 0) return [];
 
-    // Calculate duplicate frequency map
-    // Check against both the current batch AND the entire system ratings
-    const frequencyMap = new Map<string, number>();
-    
-    // 1. Mark existing system ratings (Global Check)
+    // Duplicate = the same order number was rated more than once in the system,
+    // or appears more than once in the imported POS list. (Being rated once AND
+    // being in the POS list is the normal case, not a duplicate.)
+    const ratingCount = new Map<string, number>();
     allRatings.forEach(r => {
       if (r.orderNumber) {
         const key = r.orderNumber.trim().toUpperCase();
-        frequencyMap.set(key, (frequencyMap.get(key) || 0) + 1);
+        ratingCount.set(key, (ratingCount.get(key) || 0) + 1);
       }
     });
-
-    // 2. Count current batch
+    const posCount = new Map<string, number>();
     posOrdersList.forEach(num => {
       const key = num.trim().toUpperCase();
-      // If we already have it in system, it's a duplicate. 
-      // If it's multiple times in the batch, it's a duplicate.
-      frequencyMap.set(key, (frequencyMap.get(key) || 0) + 1);
+      posCount.set(key, (posCount.get(key) || 0) + 1);
     });
+    const isDup = (order: string) => {
+      const key = order.trim().toUpperCase();
+      return (ratingCount.get(key) || 0) > 1 || (posCount.get(key) || 0) > 1;
+    };
 
     let rows: {
       orderNumber: string;
@@ -429,14 +438,12 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
 
     reconciliationData.matched.forEach((m) => {
       const posTime = posOrderTimeMap.get(m.orderNumber.toUpperCase());
-      const isDuplicate = (frequencyMap.get(m.orderNumber.trim().toUpperCase()) || 0) > 1;
-      rows.push({ orderNumber: m.orderNumber, status: 'MATCHED', rating: m.rating, posTime, isDuplicate });
+      rows.push({ orderNumber: m.orderNumber, status: 'MATCHED', rating: m.rating, posTime, isDuplicate: isDup(m.orderNumber) });
     });
 
     reconciliationData.missing.forEach((m) => {
       const posTime = posOrderTimeMap.get(m.orderNumber.toUpperCase());
-      const isDuplicate = (frequencyMap.get(m.orderNumber.trim().toUpperCase()) || 0) > 1;
-      rows.push({ orderNumber: m.orderNumber, status: 'MISSING', posTime, isDuplicate });
+      rows.push({ orderNumber: m.orderNumber, status: 'MISSING', posTime, isDuplicate: isDup(m.orderNumber) });
     });
 
     // Filter by tab
@@ -956,7 +963,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
               <div className="overflow-x-auto rounded-xl border border-slate-700">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr className="bg-slate-900/80 text-slate-300 font-bold uppercase tracking-wider border-b border-slate-700">
+                    <tr className="bg-slate-900 text-slate-400 text-[11px] font-bold border-b border-slate-700 whitespace-nowrap">
                       <th className="py-3 px-4">ลำดับ</th>
                       <th className="py-3 px-4">เลขออเดอร์ภายใน (POS)</th>
                       <th className="py-3 px-4">เวลาสั่งซื้อจากระบบ</th>
@@ -969,88 +976,80 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
                   </thead>
                   <tbody className="divide-y divide-slate-700/60 text-slate-200">
                     {tableRows.length > 0 ? (
-                      tableRows.map((row, idx) => (
+                      tableRows.map((row, idx) => {
+                        const opt = row.rating ? RATING_BY_LEVEL.get(row.rating.level) : undefined;
+                        const cashier = row.rating && row.rating.cashierName && row.rating.cashierName !== '-' ? row.rating.cashierName : '';
+                        return (
                         <tr
                           key={row.orderNumber + idx}
-                          className={`hover:bg-slate-700/40 transition ${
-                            row.isDuplicate 
-                              ? 'bg-rose-900/60 border-l-4 border-rose-500' 
-                              : row.status === 'MISSING' 
-                                ? 'bg-rose-950/20' 
+                          className={`hover:bg-slate-700/30 transition-colors ${
+                            row.isDuplicate
+                              ? 'bg-amber-500/5 shadow-[inset_3px_0_0_0_rgb(245,158,11)]'
+                              : row.status === 'MISSING'
+                                ? 'bg-rose-500/5 shadow-[inset_3px_0_0_0_rgb(244,63,94)]'
                                 : ''
                           }`}
                         >
-                          <td className="py-3 px-4 text-slate-500">{idx + 1}</td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center space-x-2">
-                              <span className={`px-2 py-0.5 rounded font-mono font-bold ${row.isDuplicate ? 'bg-rose-600 text-white shadow-sm' : 'text-white'}`}>
-                                {row.orderNumber}
+                          <td className="py-2.5 px-4 text-slate-500 tabular-nums">{idx + 1}</td>
+                          <td className="py-2.5 px-4 whitespace-nowrap">
+                            <span className="font-mono font-bold text-white">{row.orderNumber}</span>
+                            {row.isDuplicate && (
+                              <span className="ml-2 inline-flex items-center gap-1 bg-amber-500/15 text-amber-300 text-[10px] px-1.5 py-0.5 rounded border border-amber-500/30 font-bold">
+                                <AlertTriangle className="w-3 h-3" />
+                                ซ้ำ
                               </span>
-                              {row.isDuplicate && (
-                                <span className="bg-rose-600 text-white text-[9px] px-1.5 py-0.5 rounded flex items-center space-x-1 font-bold animate-pulse shadow-sm">
-                                  <AlertTriangle className="w-2.5 h-2.5" />
-                                  <span>พบเลขซ้ำในระบบ! (DUPLICATE)</span>
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            {row.posTime ? (
-                              <span className="font-mono text-cyan-300 bg-cyan-950/40 px-2 py-1 rounded border border-cyan-800/50">
-                                {row.posTime}
-                              </span>
-                            ) : (
-                              <span className="text-slate-500">-</span>
                             )}
                           </td>
-                          <td className="py-3 px-4">
+                          <td className="py-2.5 px-4 whitespace-nowrap font-mono text-cyan-300">
+                            {row.posTime || <span className="text-slate-600">–</span>}
+                          </td>
+                          <td className="py-2.5 px-4 whitespace-nowrap">
                             {row.status === 'MATCHED' ? (
-                              <span className="inline-flex items-center space-x-1 bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-full text-[11px] font-bold border border-emerald-500/30">
+                              <span className="inline-flex items-center gap-1 text-emerald-300 text-[11px] font-bold">
                                 <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-                                <span>ประเมินสำเร็จ</span>
+                                ประเมินแล้ว
                               </span>
                             ) : (
-                              <span className="inline-flex items-center space-x-1 bg-rose-500/20 text-rose-300 px-2.5 py-1 rounded-full text-[11px] font-bold border border-rose-500/30">
+                              <span className="inline-flex items-center gap-1 text-rose-300 text-[11px] font-bold">
                                 <XCircle className="w-3.5 h-3.5 text-rose-400" />
-                                <span>ตกหล่น (ไม่ปฏิบัติการประเมิน)</span>
+                                ไม่ได้ประเมิน
                               </span>
                             )}
                           </td>
-                          <td className="py-3 px-4">
+                          <td className="py-2.5 px-4">
                             {row.rating ? (
-                              <div>
-                                <div className="font-bold text-white">{row.rating.cashierName}</div>
-                                <div className="text-[11px] text-slate-400">{row.rating.counterName}</div>
+                              <div className="leading-tight">
+                                <div className="font-semibold text-white">{row.rating.counterName || '–'}</div>
+                                {cashier && <div className="text-[11px] text-slate-400">{cashier}</div>}
                               </div>
                             ) : (
-                              <span className="text-slate-500">-</span>
+                              <span className="text-slate-600">–</span>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-center">
+                          <td className="py-2.5 px-4 text-center whitespace-nowrap">
                             {row.rating ? (
-                              <span className="bg-pink-500/20 text-pink-300 font-bold px-2.5 py-1 rounded-lg border border-pink-500/30">
-                                ⭐ {row.rating.score} / 5 ({row.rating.level})
+                              <span className="inline-flex items-center gap-1.5 bg-slate-900/60 px-2.5 py-1 rounded-lg border border-slate-700">
+                                <span className="text-base leading-none">{opt?.emoji || '⭐'}</span>
+                                <span className="font-bold text-white">{opt?.labelThai || row.rating.level}</span>
+                                <span className="text-slate-500 tabular-nums">{row.rating.score}/5</span>
                               </span>
                             ) : (
-                              <span className="text-slate-500">-</span>
+                              <span className="text-slate-600">–</span>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-slate-300 font-mono text-[11px]">
-                            {row.rating ? (
-                              new Date(row.rating.timestamp).toLocaleString('th-TH')
-                            ) : (
-                              <span className="text-slate-500">-</span>
-                            )}
+                          <td className="py-2.5 px-4 whitespace-nowrap font-mono text-slate-300">
+                            {row.rating ? timeOnly(row.rating.timestamp) : <span className="text-slate-600">–</span>}
                           </td>
-                          <td className="py-3 px-4">
+                          <td className="py-2.5 px-4">
                             {row.rating ? (
                               <FlagChips flags={integrityById.get(row.rating.id)} />
                             ) : (
-                              <span className="text-slate-500">-</span>
+                              <span className="text-slate-600">–</span>
                             )}
                           </td>
                         </tr>
-                      ))
+                        );
+                      })
                     ) : (
                       <tr>
                         <td colSpan={8} className="py-8 text-center text-slate-400">
@@ -1231,7 +1230,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
 
 const FlagChips: React.FC<{ flags?: IntegrityFlag[] }> = ({ flags }) => {
   if (!flags || flags.length === 0) {
-    return <span className="text-emerald-400 text-[11px] font-bold">ปกติ</span>;
+    return <span className="inline-flex items-center gap-1 text-emerald-400 text-[11px] font-bold whitespace-nowrap">✓ ปกติ</span>;
   }
   return (
     <div className="flex flex-wrap gap-1">
@@ -1239,7 +1238,7 @@ const FlagChips: React.FC<{ flags?: IntegrityFlag[] }> = ({ flags }) => {
         <span
           key={f.code}
           title={f.detail || f.label}
-          className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+          className={`whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-bold border ${
             f.severity === 'high'
               ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
               : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
