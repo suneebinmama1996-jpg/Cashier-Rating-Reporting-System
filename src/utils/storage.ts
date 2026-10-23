@@ -177,10 +177,35 @@ export function matchesBranch(recordBranch: string | undefined | null, filterBra
   return false;
 }
 
+// Branch matching is slow (many string checks per record) but records repeat the same few
+// counter/branch values, so results are cached per counters list.
+const NO_COUNTERS: Counter[] = [];
+const branchMatchCache = new WeakMap<Counter[], Map<string, boolean>>();
+
 export function recordMatchesBranch(
   r: RatingRecord,
   filterBranch: string | undefined | null,
-  counters: Counter[] = []
+  counters: Counter[] = NO_COUNTERS
+): boolean {
+  if (!r) return false;
+  if (!filterBranch || filterBranch === 'all' || filterBranch.trim() === '') return true;
+  let cache = branchMatchCache.get(counters);
+  if (!cache) {
+    cache = new Map();
+    branchMatchCache.set(counters, cache);
+  }
+  const key = [filterBranch, r.counterId, r.branchName, r.counterName, r.cashierName].join('\u0001');
+  const hit = cache.get(key);
+  if (hit !== undefined) return hit;
+  const result = recordMatchesBranchUncached(r, filterBranch, counters);
+  cache.set(key, result);
+  return result;
+}
+
+function recordMatchesBranchUncached(
+  r: RatingRecord,
+  filterBranch: string,
+  counters: Counter[]
 ): boolean {
   if (!r) return false;
   if (!filterBranch || filterBranch === 'all' || filterBranch.trim() === '') {
@@ -246,30 +271,20 @@ export function recordMatchesBranch(
  * Normalizes a timestamp or date string to YYYY-MM-DD for consistent comparison
  * Uses Asia/Bangkok timezone to match local user expectations (+07:00)
  */
+const BKK_OFFSET_MS = 7 * 60 * 60 * 1000;
+const normalizedDateCache = new Map<string, string>();
+
 export function normalizeDate(dateStr: string | undefined): string {
   if (!dateStr) return '';
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) {
-      return dateStr.split('T')[0] || '';
-    }
-    
-    // Use Intl.DateTimeFormat to get parts for YYYY-MM-DD in Bangkok timezone
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Bangkok',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    }).formatToParts(d);
-    
-    const year = parts.find(p => p.type === 'year')?.value;
-    const month = parts.find(p => p.type === 'month')?.value;
-    const day = parts.find(p => p.type === 'day')?.value;
-    
-    return `${year}-${month}-${day}`;
-  } catch (e) {
-    return dateStr ? dateStr.split('T')[0] : '';
-  }
+  const cached = normalizedDateCache.get(dateStr);
+  if (cached !== undefined) return cached;
+  // Bangkok has no daylight saving, so a fixed +7h shift gives the local date
+  // (much faster than creating an Intl.DateTimeFormat for every record).
+  const t = Date.parse(dateStr);
+  const out = isNaN(t) ? dateStr.split('T')[0] || '' : new Date(t + BKK_OFFSET_MS).toISOString().slice(0, 10);
+  if (normalizedDateCache.size > 100000) normalizedDateCache.clear();
+  normalizedDateCache.set(dateStr, out);
+  return out;
 }
 
 /**
@@ -819,27 +834,19 @@ export function subscribeToRatings(
   return unsubscribeRatings;
 }
 
+const THAI_DATE_FMT = new Intl.DateTimeFormat('th-TH', { timeZone: 'Asia/Bangkok', year: 'numeric', month: 'short', day: 'numeric' });
+const THAI_DATETIME_FMT = new Intl.DateTimeFormat('th-TH', {
+  timeZone: 'Asia/Bangkok', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+});
+
 // Format Thai Date string (e.g., "28 ก.ค. 2569")
 export function formatThaiDate(dateIsoStr: string, includeTime = false): string {
   try {
     const d = new Date(dateIsoStr);
     if (isNaN(d.getTime())) return '-';
     
-    // Use Intl.DateTimeFormat for consistent Asia/Bangkok timezone handling
-    const options: Intl.DateTimeFormatOptions = {
-      timeZone: 'Asia/Bangkok',
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    };
-    
-    if (includeTime) {
-      options.hour = '2-digit';
-      options.minute = '2-digit';
-      options.hour12 = false;
-    }
-    
-    const formatter = new Intl.DateTimeFormat('th-TH', options);
+    // Shared formatters (Asia/Bangkok): creating one per call is slow on large lists
+    const formatter = includeTime ? THAI_DATETIME_FMT : THAI_DATE_FMT;
     const parts = formatter.formatToParts(d);
     
     const day = parts.find(p => p.type === 'day')?.value;
@@ -975,11 +982,7 @@ export function getMonthlyStats(ratings: RatingRecord[], counterId?: string, cou
       if (isNaN(d.getTime())) return;
       
       // Normalize to Thai timezone for month grouping (YYYY-MM)
-      const monthKey = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Asia/Bangkok',
-        year: 'numeric',
-        month: '2-digit'
-      }).format(d);
+      const monthKey = normalizeDate(r.timestamp).slice(0, 7);
 
       const [yearStr, monthStr] = monthKey.split('-');
       const year = parseInt(yearStr, 10);
