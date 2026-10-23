@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { RATING_OPTIONS } from '../constants/ratingOptions';
@@ -10,6 +10,7 @@ import { AlertTriangle, Heart, ThumbsUp, Sparkles, CheckCircle2, Volume2, Volume
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { CashierPicker } from './CashierPicker';
 import { cashierEntries } from '../utils/cashiers';
+import { startAutoUpdate } from '../utils/autoUpdate';
 
 interface CustomerKioskProps {
   activeCounter: Counter;
@@ -94,6 +95,15 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
         ? t('กรุณาเลือกชื่อแคชเชียร์ก่อนประเมิน', 'Please choose the cashier first')
         : '';
   const canRate = !activeCounter.isFallbackError && !blockReason;
+
+  // Pick up new deploys on counter screens that are never reloaded by hand.
+  // Reload only while the screen is idle: no POS number typed and no thank-you screen.
+  const idleRef = useRef(true);
+  idleRef.current = !orderNumber.trim() && !isThankYouShown && !isScannerOpen;
+  useEffect(() => {
+    if (isLinkMode) return;
+    return startAutoUpdate(() => idleRef.current);
+  }, [isLinkMode]);
 
   useEffect(() => {
     soundManager.setSoundEnabled(soundEnabled);
