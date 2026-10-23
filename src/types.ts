@@ -37,7 +37,7 @@ export interface Counter {
   name: string;
   cashierName: string;
   branchName: string; // สาขา
-  cashiers?: string[]; // รายชื่อแคชเชียร์ของสาขา ให้เลือกในหน้าประเมิน
+  cashiers?: (string | CashierEntry)[]; // รายชื่อแคชเชียร์ของสาขา ให้เลือกในหน้าประเมิน (ข้อมูลเก่าเป็นชื่ออย่างเดียว)
   isOnline: boolean;
   isFallbackError?: boolean;
 }
@@ -107,4 +107,9 @@ export interface POSReconciliation {
   systemTotal: number;
   difference: number;
   notes?: string;
+}
+
+export interface CashierEntry {
+  name: string;
+  code?: string; // รหัสพนักงาน ใช้สแกนหรือค้นหา
 }

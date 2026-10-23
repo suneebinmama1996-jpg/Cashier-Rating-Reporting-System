@@ -6,8 +6,10 @@ import { RatingOption, Counter, RatingRecord, SystemSettings } from '../types';
 import { THEMES } from '../constants/theme';
 import { soundManager } from '../utils/sound';
 import { getDeviceId, normalizeOrderNumber } from '../utils/storage';
-import { UserRound, AlertTriangle, Heart, ThumbsUp, Sparkles, CheckCircle2, Volume2, VolumeX, Store, Receipt, Lock, Maximize, Minimize, Camera, Globe } from 'lucide-react';
+import { AlertTriangle, Heart, ThumbsUp, Sparkles, CheckCircle2, Volume2, VolumeX, Store, Receipt, Lock, Maximize, Minimize, Camera, Globe } from 'lucide-react';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
+import { CashierPicker } from './CashierPicker';
+import { cashierEntries } from '../utils/cashiers';
 
 interface CustomerKioskProps {
   activeCounter: Counter;
@@ -68,7 +70,7 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Cashier on duty: chosen once per shift and remembered on this device
-  const cashierList = (activeCounter.cashiers || []).filter((n) => n && n.trim());
+  const cashierList = cashierEntries(activeCounter);
   const [cashier, setCashier] = useState<string>(() => loadCashier(activeCounter.id));
   const [notice, setNotice] = useState<string>('');
   useEffect(() => {
@@ -80,7 +82,7 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
     setNotice('');
   };
   // A remembered name that was later removed from the list no longer counts
-  const effectiveCashier = urlCashierName || (cashierList.length ? (cashierList.includes(cashier) ? cashier : '') : cashier.trim());
+  const effectiveCashier = urlCashierName || (cashierList.length ? (cashierList.some((c) => c.name === cashier) ? cashier : '') : cashier.trim());
   const orderKey = normalizeOrderNumber(orderNumber);
   const isDuplicateOrder = !!orderKey && !!usedOrders && usedOrders.has(orderKey);
   const t = (th: string, en: string) => (language === 'th' ? th : en);
@@ -279,6 +281,7 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2">
         {/* Cashier Order Number Input Panel */}
         <div className="flex items-center space-x-2 bg-slate-100/90 p-1.5 rounded-xl border border-slate-200">
           <div className="flex items-center space-x-1.5 px-2 text-slate-700 text-xs font-bold">
@@ -310,6 +313,12 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
               ✕
             </button>
           )}
+        </div>
+
+        {/* Cashier on duty (required) */}
+        {!urlCashierName && !activeCounter.isFallbackError && (
+          <CashierPicker list={cashierList} value={cashier} onChange={chooseCashier} language={language} />
+        )}
         </div>
 
         {/* Right Controls */}
@@ -417,34 +426,6 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
                     </button>
                   )}
                 </div>
-
-                {/* Cashier picker (required) */}
-                {!urlCashierName && !activeCounter.isFallbackError && (
-                  <div className="flex items-center justify-center gap-2 bg-slate-900 text-white text-xs sm:text-sm px-4 py-2 rounded-2xl shadow-sm -mt-4 mb-4 border border-slate-700 max-w-md w-full">
-                    <UserRound className="w-4 h-4 text-pink-400 shrink-0" />
-                    <span className="shrink-0 font-medium text-slate-300">{t('แคชเชียร์:', 'Cashier:')}</span>
-                    {cashierList.length > 0 ? (
-                      <select
-                        value={cashierList.includes(cashier) ? cashier : ''}
-                        onChange={(e) => chooseCashier(e.target.value)}
-                        className={`flex-1 min-w-0 bg-slate-800 border rounded-lg px-2.5 py-1 font-bold focus:outline-none focus:ring-2 focus:ring-pink-500 ${effectiveCashier ? 'text-pink-300 border-slate-600' : 'text-slate-400 border-rose-500'}`}
-                      >
-                        <option value="">{t('— เลือกชื่อแคชเชียร์ —', '— Choose cashier —')}</option>
-                        {cashierList.map((n) => (
-                          <option key={n} value={n}>{n}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type="text"
-                        value={cashier}
-                        onChange={(e) => chooseCashier(e.target.value)}
-                        placeholder={t('พิมพ์ชื่อแคชเชียร์', 'Type cashier name')}
-                        className={`flex-1 min-w-0 bg-slate-800 border rounded-lg px-2.5 py-1 font-bold text-pink-300 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-pink-500 ${effectiveCashier ? 'border-slate-600' : 'border-rose-500'}`}
-                      />
-                    )}
-                  </div>
-                )}
 
                 {(notice || isDuplicateOrder) && (
                   <div role="alert" className="flex items-center gap-2 bg-rose-50 text-rose-700 border border-rose-200 px-4 py-2 rounded-xl text-sm font-bold mb-4">
