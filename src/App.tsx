@@ -8,6 +8,7 @@ import { RatingRecord, Counter, SystemSettings, POSReconciliation } from './type
 import {
   getStoredRatings,
   saveRatingRecord,
+  normalizeOrderNumber,
   deleteRatingRecord,
   getStoredCounters,
   saveCounters,
@@ -235,6 +236,17 @@ export default function App() {
     setActiveCounterId(id);
   };
 
+  // POS numbers that already have a rating, so the kiosk can refuse a second one
+  const usedOrders = useMemo(() => {
+    const set = new Set<string>();
+    ratings.forEach((r) => {
+      if (r.voided) return;
+      const k = normalizeOrderNumber(r.orderNumber);
+      if (k) set.add(k);
+    });
+    return set;
+  }, [ratings]);
+
   const handleNewRatingSubmitted = async (newRatingData: RatingRecord) => {
     const created = await saveRatingRecord(newRatingData);
     // Local state is already updated via setRatings in subscribeToRatings
@@ -312,6 +324,7 @@ export default function App() {
           settings={settings}
           onSelectCounter={handleSelectCounter}
           onNewRatingSubmitted={handleNewRatingSubmitted}
+          usedOrders={usedOrders}
           onOpenAdmin={() => {
             if (isBranchAdminLink) {
               setViewMode('admin');

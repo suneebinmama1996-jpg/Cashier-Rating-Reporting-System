@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Counter, SystemSettings } from '../types';
-import { Store, Plus, Trash2, X, Building, Copy, Check, ExternalLink, Link2 } from 'lucide-react';
+import { Store, Plus, Trash2, X, Building, Copy, Check, ExternalLink, Link2, UserRound } from 'lucide-react';
 
 interface CounterManagementModalProps {
   isOpen: boolean;
@@ -23,6 +23,7 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
   const [newName, setNewName] = useState('');
   const [recentlyAddedBranch, setRecentlyAddedBranch] = useState<string | null>(null);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  const [cashierDraft, setCashierDraft] = useState<Record<string, string>>({});
 
   // Sync list when counters prop changes
   React.useEffect(() => {
@@ -68,6 +69,24 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
     const updated = list.filter((c) => c.id !== id);
     setList(updated);
     onSaveCounters(updated);
+  };
+
+  const updateCashiers = (id: string, names: string[]) => {
+    const updated = list.map((c) => (c.id === id ? { ...c, cashiers: names } : c));
+    setList(updated);
+    onSaveCounters(updated);
+  };
+
+  const handleAddCashier = (c: Counter) => {
+    const names = (cashierDraft[c.id] || '')
+      .split(/[,\n]/)
+      .map((n) => n.trim())
+      .filter(Boolean);
+    if (!names.length) return;
+    const current = c.cashiers || [];
+    const merged = [...current, ...names.filter((n) => !current.includes(n))];
+    updateCashiers(c.id, merged);
+    setCashierDraft((d) => ({ ...d, [c.id]: '' }));
   };
 
   const handleCopy = (url: string, key: string) => {
@@ -195,12 +214,13 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
             <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
               สาขาปัจจุบันทั้งหมด ({list.length}) - กดคัดลอกลิงก์แยกได้ทันที
             </h4>
-            <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
+            <div className="max-h-[28rem] overflow-y-auto divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
               {list.map((c) => {
                 const kioskLink = getBranchKioskUrl(c.branchName || c.name);
                 const isCopied = copiedUrl === `list-${c.id}`;
                 return (
-                  <div key={c.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/80 transition">
+                  <div key={c.id} className="p-3.5 hover:bg-slate-50/80 transition space-y-2.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                       <div className="font-bold text-slate-800 text-sm flex items-center space-x-2">
                         <Store className="w-4 h-4 text-teal-600" />
@@ -230,6 +250,49 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
                         <span>เปิด</span>
                       </a>
                     </div>
+                  </div>
+                  {/* Cashier names for this branch */}
+                  <div className="bg-slate-50 rounded-xl border border-slate-200 p-2.5 space-y-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
+                      <UserRound className="w-3.5 h-3.5 text-pink-600" />
+                      <span>แคชเชียร์ของสาขานี้ ({(c.cashiers || []).length})</span>
+                    </div>
+                    {(c.cashiers || []).length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {(c.cashiers || []).map((n) => (
+                          <span key={n} className="inline-flex items-center gap-1 bg-white border border-slate-300 rounded-full pl-2.5 pr-1 py-0.5 text-xs font-semibold text-slate-700">
+                            {n}
+                            <button
+                              onClick={() => updateCashiers(c.id, (c.cashiers || []).filter((x) => x !== n))}
+                              className="text-slate-400 hover:text-rose-600 px-1"
+                              title={`ลบ ${n}`}
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-amber-700">ยังไม่มีรายชื่อ หน้าประเมินจะให้พิมพ์ชื่อเองแทนการเลือก</div>
+                    )}
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={cashierDraft[c.id] || ''}
+                        onChange={(e) => setCashierDraft((d) => ({ ...d, [c.id]: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddCashier(c); }}
+                        placeholder="ชื่อแคชเชียร์ (ใส่หลายชื่อคั่นด้วย , ได้)"
+                        className="flex-1 min-w-0 border border-slate-300 rounded-lg px-2.5 py-1 text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
+                      <button
+                        onClick={() => handleAddCashier(c)}
+                        className="flex items-center gap-1 bg-teal-600 hover:bg-teal-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition shrink-0"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        เพิ่ม
+                      </button>
+                    </div>
+                  </div>
                   </div>
                 );
               })}
