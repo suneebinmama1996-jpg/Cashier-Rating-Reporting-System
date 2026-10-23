@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { Link2, Copy, Check, ExternalLink, User, Receipt, Globe, Share2, Info, ArrowLeft } from 'lucide-react';
+import { Link2, Copy, Check, ExternalLink, User, Receipt, Globe, Share2, Info, ArrowLeft, Search, X } from 'lucide-react';
 import { Counter, SystemSettings } from '../types';
 import { matchesBranch } from '../utils/storage';
+import { CashierEntry } from '../types';
+import { cashierEntries, mergeCashiers, findCashier, searchCashiers } from '../utils/cashiers';
 
 interface DigitalLinkGeneratorProps {
   counters: Counter[];
@@ -15,6 +17,8 @@ export const DigitalLinkGenerator: React.FC<DigitalLinkGeneratorProps> = ({ coun
   const [staffName, setStaffName] = useState<string>('');
   const [posId, setPosId] = useState<string>('');
   const [isCopied, setIsCopied] = useState(false);
+  const [staffQuery, setStaffQuery] = useState('');
+  const [staffError, setStaffError] = useState('');
 
   // Get unique branches
   const branches = useMemo(() => {
@@ -43,6 +47,30 @@ export const DigitalLinkGenerator: React.FC<DigitalLinkGeneratorProps> = ({ coun
       }
     }
   }, [branches, defaultBranch]);
+
+  // Cashier list of the chosen branch (all its counters), same list the kiosk uses
+  const cashierList = useMemo<CashierEntry[]>(() => {
+    let out: CashierEntry[] = [];
+    counters.filter(c => c.branchName === selectedBranch).forEach(c => { out = mergeCashiers(out, cashierEntries(c)); });
+    return out.sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  }, [counters, selectedBranch]);
+  const hasCashiers = cashierList.length > 0;
+  const staffMatches = useMemo(() => searchCashiers(cashierList, staffQuery), [cashierList, staffQuery]);
+
+  // Changing branch clears a name that is not on the new branch's list
+  React.useEffect(() => {
+    setStaffQuery('');
+    setStaffError('');
+    if (hasCashiers && staffName && !cashierList.some(c => c.name === staffName)) setStaffName('');
+  }, [selectedBranch, cashierList]);
+
+  const submitStaff = (raw: string) => {
+    const v = raw.trim();
+    if (!v) return;
+    const hit = findCashier(cashierList, v) || (staffMatches.length === 1 ? staffMatches[0] : undefined);
+    if (hit) { setStaffName(hit.name); setStaffQuery(''); setStaffError(''); }
+    else setStaffError(`ไม่พบ "${v}" ในรายชื่อแคชเชียร์ของสาขานี้`);
+  };
 
   const publicSharedBaseUrl = 'https://ais-pre-te4rx6pbwev3sufbtfprfp-628779573343.asia-southeast1.run.app/';
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -132,13 +160,64 @@ export const DigitalLinkGenerator: React.FC<DigitalLinkGeneratorProps> = ({ coun
                   <User className="w-3.5 h-3.5" />
                   <span>ชื่อพนักงานผู้ให้บริการ (Staff Name):</span>
                 </label>
-                <input
-                  type="text"
-                  placeholder="เช่น พนักงาน A / แอดมิน B"
-                  value={staffName}
-                  onChange={(e) => setStaffName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition"
-                />
+                {hasCashiers ? (
+                  <div className="space-y-2">
+                    {staffName ? (
+                      <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5">
+                        <span className="text-sm font-bold text-indigo-800 truncate">
+                          {staffName}
+                          {cashierList.find(c => c.name === staffName)?.code && (
+                            <span className="ml-2 text-xs font-semibold text-indigo-500">รหัส {cashierList.find(c => c.name === staffName)?.code}</span>
+                          )}
+                        </span>
+                        <button type="button" onClick={() => setStaffName('')} className="p-1 text-indigo-500 hover:text-indigo-800" title="เลือกใหม่">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="relative">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="ค้นหาชื่อหรือรหัสพนักงาน / สแกนบัตรแล้วกด Enter"
+                            value={staffQuery}
+                            onChange={(e) => { setStaffQuery(e.target.value); setStaffError(''); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submitStaff(staffQuery); } }}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition"
+                          />
+                        </div>
+                        <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white">
+                          {staffMatches.length ? staffMatches.map(c => (
+                            <button
+                              key={c.name}
+                              type="button"
+                              onClick={() => { setStaffName(c.name); setStaffQuery(''); setStaffError(''); }}
+                              className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-indigo-50 flex items-center justify-between"
+                            >
+                              <span className="truncate">{c.name}</span>
+                              {c.code && <span className="text-xs text-slate-400 ml-2">{c.code}</span>}
+                            </button>
+                          )) : (
+                            <div className="px-4 py-3 text-xs text-slate-400">ไม่พบชื่อที่ค้นหา</div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                    {staffError && <p className="text-xs font-semibold text-rose-600">{staffError}</p>}
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      placeholder="เช่น พนักงาน A / แอดมิน B"
+                      value={staffName}
+                      onChange={(e) => setStaffName(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition"
+                    />
+                    <p className="text-[11px] text-amber-600">สาขานี้ยังไม่มีรายชื่อแคชเชียร์ เพิ่มได้ที่ "จัดการสาขา" แล้วจะเลือกจากรายชื่อได้</p>
+                  </>
+                )}
               </div>
 
               {/* POS ID */}
