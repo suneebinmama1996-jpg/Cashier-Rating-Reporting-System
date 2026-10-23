@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { RatingRecord, Counter, SystemSettings, POSReconciliation } from '../types';
 import { THEMES } from '../constants/theme';
@@ -40,6 +40,7 @@ interface OrderReconciliationProps {
   reconciliations: POSReconciliation[];
   counters: Counter[];
   settings: SystemSettings;
+  selectedBranch?: string; // branch picked in the admin header
 }
 
 interface PosRecord {
@@ -53,6 +54,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
   reconciliations,
   counters,
   settings,
+  selectedBranch: headerBranch,
 }) => {
   const [posRecords, setPosRecords] = useState<PosRecord[]>([]);
   const [posInputText, setPosInputText] = useState<string>('');
@@ -60,7 +62,11 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
   const [uploadedFileName, setUploadedFileName] = useState<string>('');
   // true when the list was copied from the ratings themselves, not from a POS file
   const [fromSystem, setFromSystem] = useState(false);
-  const [selectedBranch, setSelectedBranch] = useState<string>('all');
+  const [selectedBranch, setSelectedBranch] = useState<string>(headerBranch || 'all');
+  // Follow the branch picked in the header so every section shows the same branch
+  useEffect(() => {
+    setSelectedBranch(headerBranch || 'all');
+  }, [headerBranch]);
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]); 
   const [activeFilter, setActiveFilter] = useState<'all' | 'missing' | 'matched'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -571,7 +577,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Automatic check against POS bills from the closing report */}
-      <AutoPosCheck ratings={ratings} />
+      <AutoPosCheck ratings={ratings} branch={selectedBranch} />
 
       {/* Header Banner */}
       <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -593,9 +599,11 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
             <select
               value={selectedBranch}
               onChange={(e) => setSelectedBranch(e.target.value)}
-              className="bg-slate-800 text-white text-xs px-3 py-1.5 rounded-lg border border-slate-600 focus:outline-none focus:ring-2 focus:ring-pink-500"
+              disabled={!!headerBranch && headerBranch !== 'all'}
+              title={headerBranch && headerBranch !== 'all' ? 'ใช้สาขาที่เลือกด้านบน' : undefined}
+              className="bg-slate-800 text-white text-xs px-3 py-1.5 rounded-lg border border-slate-600 focus:outline-none focus:ring-2 focus:ring-pink-500 disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              <option value="all">ทุกสาขา (All Branches)</option>
+              {(!headerBranch || headerBranch === 'all') && <option value="all">ทุกสาขา (All Branches)</option>}
               {Array.from(new Set(counters.map(c => c.branchName))).filter(Boolean).map((b) => (
                 <option key={b} value={b}>{b}</option>
               ))}
