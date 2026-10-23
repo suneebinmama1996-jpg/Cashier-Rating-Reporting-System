@@ -12,8 +12,51 @@ import {
   orderBy,
   deleteDoc,
   writeBatch,
-  getDocFromServer
+  getDocFromServer,
+  serverTimestamp,
+  updateDoc,
 } from 'firebase/firestore';
+
+const DEVICE_ID_KEY = 'cashier_device_id_v1';
+
+/** A random id per browser/tablet, so ratings from the same device can be grouped. */
+export function getDeviceId(): string {
+  try {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      id = `d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return 'unknown';
+  }
+}
+
+/** Firestore Timestamp (or string) -> ISO string. */
+function toIso(v: any): string | undefined {
+  if (!v) return undefined;
+  if (typeof v === 'string') return v;
+  if (typeof v.toDate === 'function') return v.toDate().toISOString();
+  if (typeof v.seconds === 'number') return new Date(v.seconds * 1000).toISOString();
+  return undefined;
+}
+
+/** Converts a Firestore rating document into a plain RatingRecord. */
+function fromFirestoreRating(raw: any): RatingRecord {
+  const data = { ...raw };
+  const st = toIso(data.serverTime);
+  if (st) data.serverTime = st; else delete data.serverTime;
+  const vt = toIso(data.voidedAt);
+  if (vt) data.voidedAt = vt; else delete data.voidedAt;
+  return data as RatingRecord;
+}
+
+/** Writes a rating to Firestore with the server's own clock in serverTime. */
+function writeRatingToFirestore(r: RatingRecord) {
+  const { serverTime, voided, voidedAt, ...rest } = r as any;
+  return setDoc(doc(db, 'ratings', r.id), { ...rest, serverTime: serverTimestamp() });
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -381,6 +424,9 @@ export function isRealRatingRecord(r: any): boolean {
   
   // Filter out any ID explicitly marked as mock
   if (r.id.startsWith('mock-') || r.id.startsWith('rec-')) return false;
+
+  // Ratings removed by an admin stay in the database for audit, but are not counted
+  if (r.voided) return false;
   
   // Filter out legacy mock branches
   if (isMockBranch(r.branchName)) return false;
@@ -414,7 +460,7 @@ export async function saveRatingRecord(created: RatingRecord): Promise<RatingRec
 
   // Save to Firestore - Real-time sync
   try {
-    await setDoc(doc(db, 'ratings', created.id), created);
+    await writeRatingToFirestore(created);
     
     // Optional Dual Backup - Webhook
     const webhookUrl = (window as any).WEBHOOK_BACKUP_URL || '';
@@ -455,13 +501,13 @@ export async function deleteRatingRecord(id: string): Promise<void> {
     }
   }
 
-  // 3. Delete directly from Firestore
+  // 3. Mark as voided in Firestore (kept for audit; the database does not allow deleting ratings)
   try {
-    await deleteDoc(doc(db, 'ratings', id));
-    console.log(`Rating document ${id} successfully deleted from Firestore.`);
+    await updateDoc(doc(db, 'ratings', id), { voided: true, voidedAt: serverTimestamp() });
+    console.log(`Rating document ${id} marked as voided in Firestore.`);
   } catch (e) {
-    console.error('Firestore delete rating record error:', e);
-    handleFirestoreError(e, OperationType.DELETE, `ratings/${id}`);
+    console.error('Firestore void rating record error:', e);
+    handleFirestoreError(e, OperationType.UPDATE, `ratings/${id}`);
   }
 }
 
@@ -480,8 +526,11 @@ export async function clearAllRatings(): Promise<void> {
   try {
     const snapshot = await getDocs(collection(db, 'ratings'));
     if (snapshot.docs.length > 0) {
-      const deletePromises = snapshot.docs.map((docSnap) => deleteDoc(docSnap.ref));
-      await Promise.all(deletePromises);
+      // Ratings are voided, not deleted, so they stay available for audit
+      const voidPromises = snapshot.docs
+        .filter((docSnap) => !docSnap.data()?.voided)
+        .map((docSnap) => updateDoc(docSnap.ref, { voided: true, voidedAt: serverTimestamp() }));
+      await Promise.all(voidPromises);
     }
   } catch (e) {
     console.error('Firestore clear error:', e);
@@ -555,7 +604,7 @@ export async function fetchRatingsFromFirestore(): Promise<RatingRecord[]> {
       try {
         const snapshot = await getDocs(collection(db, colName));
         snapshot.forEach((docSnap) => {
-          const data = docSnap.data() as any;
+          const data = fromFirestoreRating(docSnap.data());
           if (data && data.id && data.timestamp && isRealRatingRecord(data)) {
             allRecords.push(data);
           }
@@ -717,13 +766,19 @@ export function subscribeToRatings(
     const deletedIds = getDeletedRatingIds();
     const allFirestoreRecords: RatingRecord[] = [];
 
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data() as RatingRecord;
-      const recId = docSnap.id || data?.id;
+    const allFirestoreIds = new Set<string>();
 
-      // If document was marked deleted, ensure deleteDoc is executed on Firestore & ignore it
+    snapshot.forEach((docSnap) => {
+      const data = fromFirestoreRating(docSnap.data());
+      const recId = docSnap.id || data?.id;
+      allFirestoreIds.add(recId);
+      if (data?.id) allFirestoreIds.add(data.id);
+
+      // Removed on this device: hide it (it is voided in Firestore, not deleted)
       if (deletedIds.has(recId) || (data && deletedIds.has(data.id))) {
-        deleteDoc(doc(db, 'ratings', docSnap.id)).catch(() => {});
+        if (!data?.voided) {
+          updateDoc(doc(db, 'ratings', docSnap.id), { voided: true, voidedAt: serverTimestamp() }).catch(() => {});
+        }
         return;
       }
 
@@ -737,14 +792,14 @@ export function subscribeToRatings(
     
     // 2. Merge logic: If Firestore has data, it's the source of truth for those records.
     // However, if we have local records NOT yet in Firestore, we should preserve them and upload them.
-    const firestoreIds = new Set(allFirestoreRecords.map(r => r.id));
-    const pendingUpload = localRecords.filter(r => !firestoreIds.has(r.id) && !deletedIds.has(r.id));
+    // (voided ratings count as "already in Firestore" so they are never re-uploaded)
+    const pendingUpload = localRecords.filter(r => !allFirestoreIds.has(r.id) && !deletedIds.has(r.id));
     
     // Upload pending records to Firestore
     if (pendingUpload.length > 0) {
       console.log(`Uploading ${pendingUpload.length} pending local records to Firestore...`);
       pendingUpload.forEach(r => {
-        setDoc(doc(db, 'ratings', r.id), r).catch(e => console.error('Auto-sync error:', e));
+        writeRatingToFirestore(r).catch(e => console.error('Auto-sync error:', e));
       });
     }
 

@@ -24,6 +24,12 @@ export interface RatingRecord {
   level: RatingLevel;
   tags?: string[];
   comment?: string;
+  // Integrity fields (added for POS cross-check)
+  serverTime?: string; // time the database received the rating (set by Firestore, cannot be faked by the device clock)
+  deviceId?: string; // random id of the browser/tablet that submitted the rating
+  source?: 'kiosk' | 'link'; // counter screen, or an online link (?branch=/?pos=)
+  voided?: boolean; // removed by admin; kept for audit instead of being deleted
+  voidedAt?: string;
 }
 
 export interface Counter {
