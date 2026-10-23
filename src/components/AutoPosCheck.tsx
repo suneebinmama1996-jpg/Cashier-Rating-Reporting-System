@@ -85,9 +85,18 @@ async function loadPosIndex(): Promise<PosBranch[]> {
 
 interface Props {
   ratings: RatingRecord[]; // already limited to the admin's branch view
+  branch?: string; // branch picked in the admin header ('all' or empty = every branch)
 }
 
-export const AutoPosCheck: React.FC<Props> = ({ ratings }) => {
+const squash = (s: string) => s.toUpperCase().replace(/\s+/g, '');
+// Does a POS branch (Thai label from the closing report) match the branch picked in the survey?
+function posBranchMatches(b: PosBranch, picked?: string): boolean {
+  if (!picked || picked === 'all') return true;
+  const p = squash(picked), en = BRANCH_TH[b.label];
+  return (!!en && p.includes(squash(en))) || p.includes(squash(b.label));
+}
+
+export const AutoPosCheck: React.FC<Props> = ({ ratings, branch }) => {
   const yesterday = shift(dayOf(Date.now()), -1);
   const [from, setFrom] = useState(yesterday.slice(0, 8) + '01');
   const [to, setTo] = useState(yesterday);
@@ -179,6 +188,7 @@ export const AutoPosCheck: React.FC<Props> = ({ ratings }) => {
     });
 
     pos.forEach((b) => {
+      if (!posBranchMatches(b, branch)) return;
       const mine = byBranch.get(b.code) || [];
       const rangeBills = new Map<string, Bill>();
       b.bills.forEach((v, k) => inRange(v.day) && rangeBills.set(k, v));
@@ -232,7 +242,7 @@ export const AutoPosCheck: React.FC<Props> = ({ ratings }) => {
     });
     flagged.sort((a, b) => a.t - b.t);
     return { days, perDay, rows, flagged, other, total: list.length, nBr: rows.length };
-  }, [pos, ratings, from, to]);
+  }, [pos, ratings, from, to, branch]);
 
   const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) + '%' : '–');
   const one = from === to;
@@ -295,6 +305,7 @@ export const AutoPosCheck: React.FC<Props> = ({ ratings }) => {
           </div>
         )}
         <div className="text-[11px] text-slate-500">
+          {branch && branch !== 'all' ? `สาขา ${branch} · ` : 'ทุกสาขา · '}
           {one ? `วันที่ ${thai(from)}` : `${thai(from)} – ${thai(to)} (${A?.days.length || 0} วัน)`}
           {A ? ` · ใบประเมิน ${A.total.toLocaleString()} ใบ` : ''}
           {A?.other ? ` (ระบุสาขาไม่ได้ ${A.other} ใบ)` : ''}
