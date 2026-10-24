@@ -11,6 +11,7 @@ import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { CashierPicker } from './CashierPicker';
 import { cashierEntries } from '../utils/cashiers';
 import { startAutoUpdate } from '../utils/autoUpdate';
+import { readLinkParams } from '../utils/linkParams';
 
 interface CustomerKioskProps {
   activeCounter: Counter;
@@ -60,12 +61,16 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
 
   const theme = THEMES[settings.themeColor] || THEMES.teal;
   
-  const [urlCashierName, setUrlCashierName] = useState<string>('');
-  // true when opened from a per-order online link (?pos= / ?staff=), not the counter screen
-  const [isLinkMode, setIsLinkMode] = useState(false);
+  // Opened from a per-order online link (?pos= / ?staff=), not the counter screen.
+  // Values that came in the link are locked so the customer cannot change them.
+  const [link] = useState(readLinkParams);
+  const urlCashierName = link.staff;
+  const isLinkMode = !!(link.order || link.staff);
+  const orderLocked = !!link.order;
+  const [linkDone, setLinkDone] = useState(false);
 
   // Cashier Order Number State
-  const [orderNumber, setOrderNumber] = useState<string>('');
+  const [orderNumber, setOrderNumber] = useState<string>(link.order);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [lastSubmittedOrder, setLastSubmittedOrder] = useState<string>('');
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -129,32 +134,6 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
     }
   };
 
-  useEffect(() => {
-    // Read order, cashier, or branch from URL params if provided
-    try {
-      const searchStr = window.location.search || (window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '');
-      if (searchStr) {
-        const params = new URLSearchParams(searchStr);
-        
-        // Handle Order Number
-        const orderParam = params.get('order') || params.get('orderNumber') || params.get('pos');
-        if (orderParam) {
-          setOrderNumber(orderParam.trim());
-          setIsLinkMode(true);
-        }
-
-        // Handle Cashier/Staff Name if provided in URL (overrides counter default)
-        const staffParam = params.get('staff') || params.get('cashier') || params.get('emp');
-        if (staffParam && staffParam.trim()) {
-          setUrlCashierName(staffParam.trim());
-          setIsLinkMode(true);
-        }
-      }
-    } catch {
-      // Ignore URL parse errors
-    }
-  }, []);
-
   const handleRatingClick = (option: RatingOption) => {
     if (blockReason) {
       setNotice(blockReason);
@@ -194,6 +173,12 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
       deviceId: getDeviceId(),
       source: isLinkMode ? 'link' : 'kiosk',
     } as RatingRecord);
+
+    // An online link is good for one rating: stay on the thank-you screen
+    if (isLinkMode) {
+      setLinkDone(true);
+      return;
+    }
 
     // Reset order number input for next customer
     setOrderNumber('');
@@ -240,7 +225,8 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
         </div>
       </div>
 
-      {/* Top Header Bar */}
+      {/* Top Header Bar (counter screen only; customers on an online link see just the rating card) */}
+      {!isLinkMode && (
       <div className="relative z-20 flex flex-wrap items-center justify-between gap-4 bg-white/90 backdrop-blur-md px-6 py-3.5 rounded-2xl shadow-sm border border-slate-200/80">
         <div className="flex items-center space-x-3">
           {/* Logo / Org Name */}
@@ -388,6 +374,8 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
         </div>
       </div>
 
+      )}
+
       {/* Main Touchscreen Kiosk Card */}
       <div className="relative z-10 flex-1 flex flex-col items-center justify-center my-4 md:my-6 max-w-5xl mx-auto w-full">
         <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl border border-slate-100 p-6 md:p-8 lg:p-14 w-full text-center relative overflow-hidden flex-1 flex flex-col justify-center">
@@ -406,6 +394,22 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
                 className="flex flex-col items-center"
               >
                 {/* Order Number Input Box */}
+                {orderLocked ? (
+                  <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 bg-slate-900 text-white text-xs sm:text-sm px-4 py-2 rounded-2xl shadow-sm mb-6 border border-slate-700 max-w-md w-full">
+                    <span className="flex items-center gap-1.5">
+                      <Receipt className="w-4 h-4 text-pink-400 shrink-0" />
+                      <span className="text-slate-300">{t('เลขออเดอร์/ใบเสร็จ:', 'Order No:')}</span>
+                      <strong className="font-mono text-pink-300">{orderNumber}</strong>
+                    </span>
+                    {urlCashierName && (
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-slate-300">{t('พนักงาน:', 'Staff:')}</span>
+                        <strong className="text-white">{urlCashierName}</strong>
+                      </span>
+                    )}
+                    <Lock className="w-3.5 h-3.5 text-slate-500" aria-label={t('ล็อกไว้', 'Locked')} />
+                  </div>
+                ) : (
                 <div className="flex items-center justify-center space-x-2 bg-slate-900 text-white font-mono text-xs sm:text-sm px-4 py-2 rounded-2xl shadow-sm mb-6 border border-slate-700 max-w-md w-full">
                   <Receipt className="w-4 h-4 text-pink-400 shrink-0" />
                   <span className="shrink-0 font-medium text-slate-300">{language === 'th' ? 'เลขออเดอร์/ใบเสร็จ:' : 'Order No:'}</span>
@@ -436,6 +440,12 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
                     </button>
                   )}
                 </div>
+                )}
+                {isLinkMode && !urlCashierName && !activeCounter.isFallbackError && (
+                  <div className="mb-6">
+                    <CashierPicker list={cashierList} value={cashier} onChange={chooseCashier} language={language} />
+                  </div>
+                )}
 
                 {(notice || isDuplicateOrder) && (
                   <div role="alert" className="flex items-center gap-2 bg-rose-50 text-rose-700 border border-rose-200 px-4 py-2 rounded-xl text-sm font-bold mb-4">
@@ -526,12 +536,16 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
                   <span>{language === 'th' ? 'ระบบบันทึกข้อมูลเรียบร้อยแล้ว' : 'Data recorded successfully'}</span>
                 </div>
 
-                <button
-                  onClick={handleManualReset}
-                  className="mt-8 text-xs text-slate-400 hover:text-slate-600 underline"
-                >
-                  {language === 'th' ? 'กดเพื่อกลับหน้าแรกทันที' : 'Tap to return to home screen'}
-                </button>
+                {linkDone ? (
+                  <p className="mt-8 text-sm text-slate-500">{t('ประเมินเรียบร้อยแล้ว ปิดหน้านี้ได้เลยค่ะ', 'All done. You can close this page.')}</p>
+                ) : (
+                  <button
+                    onClick={handleManualReset}
+                    className="mt-8 text-xs text-slate-400 hover:text-slate-600 underline"
+                  >
+                    {language === 'th' ? 'กดเพื่อกลับหน้าแรกทันที' : 'Tap to return to home screen'}
+                  </button>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -547,7 +561,7 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
 
       {/* Footer Branding Bar */}
       <div className="relative z-10 text-center text-slate-400 text-xs sm:text-sm py-2">
-        <span>{language === 'th' ? 'สาขา • ระบบประเมินความพึงพอใจการให้บริการ' : 'Cashier Service • Customer Satisfaction Rating System'}</span>
+        <span>{language === 'th' ? `${isLinkMode && activeCounter.branchName ? activeCounter.branchName : 'สาขา'} • ระบบประเมินความพึงพอใจการให้บริการ` : 'Cashier Service • Customer Satisfaction Rating System'}</span>
       </div>
     </div>
   );
