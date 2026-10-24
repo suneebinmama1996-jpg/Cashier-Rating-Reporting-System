@@ -83,6 +83,25 @@ export default function App() {
   // URL Auth Bypass Logic
   const isBranchAdminLink = (branchFilter && branchFilter !== 'all') || counterFilter;
 
+  // The kiosk shows the admin button only in a tab that was opened with an admin link (#admin).
+  // Counter screens opened with a kiosk link (#kiosk) have no way into the back office.
+  const ADMIN_TAB_KEY = 'nuh_admin_link_tab';
+  const [isAdminTab, setIsAdminTab] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem(ADMIN_TAB_KEY) === '1' || window.location.hash.toLowerCase().startsWith('#admin');
+    } catch {
+      return window.location.hash.toLowerCase().startsWith('#admin');
+    }
+  });
+  const markAdminTab = () => {
+    setIsAdminTab(true);
+    try {
+      sessionStorage.setItem(ADMIN_TAB_KEY, '1');
+    } catch {
+      /* the flag then lasts only until reload */
+    }
+  };
+
   // Sync hash with view mode
   useEffect(() => {
     const handleHashChange = () => {
@@ -91,6 +110,7 @@ export default function App() {
       if (isCustomerLink()) {
         setViewMode('kiosk');
       } else if (hash.startsWith('#admin')) {
+        markAdminTab();
         setViewMode('admin');
       } else if (hash.startsWith('#links')) {
         setViewMode('generator');
@@ -329,7 +349,7 @@ export default function App() {
           onSelectCounter={handleSelectCounter}
           onNewRatingSubmitted={handleNewRatingSubmitted}
           usedOrders={usedOrders}
-          onOpenAdmin={() => {
+          onOpenAdmin={!isAdminTab ? undefined : () => {
             if (isBranchAdminLink) {
               setViewMode('admin');
               window.location.hash = 'admin';
