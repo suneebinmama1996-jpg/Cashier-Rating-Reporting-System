@@ -1,38 +1,40 @@
 import React, { useState } from 'react';
+import { SystemSettings } from '../types';
+import { checkPin } from '../utils/adminAuth';
 import { Lock, KeyRound, X, AlertCircle, ShieldCheck } from 'lucide-react';
 
 interface AdminPinModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  adminPin: string;
+  settings: Pick<SystemSettings, 'adminPin' | 'adminPinHash'>;
 }
 
 export const AdminPinModal: React.FC<AdminPinModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
-  adminPin,
+  settings,
 }) => {
   const [pinInput, setPinInput] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
   if (!isOpen) return null;
 
-  const handleVerify = (e: React.FormEvent) => {
+  const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pinInput === adminPin || pinInput === '1234') {
+    if (await checkPin(pinInput, settings)) {
       setErrorMessage('');
       setPinInput('');
       onSuccess();
     } else {
-      setErrorMessage('รหัส PIN ไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง');
+      setErrorMessage('รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง');
       setPinInput('');
     }
   };
 
   const handleNumpadClick = (num: string) => {
-    if (pinInput.length < 8) {
+    if (pinInput.length < 32) {
       setPinInput((prev) => prev + num);
       setErrorMessage('');
     }
@@ -78,8 +80,8 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
                 setPinInput(e.target.value);
                 setErrorMessage('');
               }}
-              placeholder="ใส่รหัส PIN 4 หลัก..."
-              maxLength={8}
+              placeholder="ใส่รหัสผ่าน..."
+              maxLength={32}
               autoFocus
               className="bg-transparent text-center text-lg font-mono tracking-widest text-white focus:outline-none w-full placeholder:text-xs placeholder:tracking-normal placeholder:text-slate-600"
             />
@@ -129,9 +131,6 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
           </div>
         </form>
 
-        <p className="text-[11px] text-slate-500 text-center mt-4">
-          * รหัส PIN เริ่มต้นระบบคือ <strong className="text-slate-400 font-mono">1234</strong> (สามารถเปลี่ยนได้ในหน้าตั้งค่า)
-        </p>
       </div>
     </div>
   );

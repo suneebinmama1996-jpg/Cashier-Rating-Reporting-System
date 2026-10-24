@@ -376,7 +376,7 @@ export default function App() {
       <AdminPinModal
         isOpen={isPinModalOpen}
         onClose={() => setIsPinModalOpen(false)}
-        adminPin={settings.adminPin || '1234'}
+        settings={settings}
         onSuccess={() => {
           setIsPinModalOpen(false);
           setViewMode('admin');

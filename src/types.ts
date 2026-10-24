@@ -83,6 +83,7 @@ export interface SystemSettings {
   branches?: string[]; // Legacy, branches are now managed via Counters
   themeColor: ThemeColor;
   adminPin: string;
+  adminPinHash?: string; // SHA-256 of the admin password (see utils/adminAuth)
 }
 
 export interface MonthlyStats {
