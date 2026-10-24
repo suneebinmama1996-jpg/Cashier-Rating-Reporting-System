@@ -42,7 +42,6 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
   const [logoUrl, setLogoUrl] = useState<string | null>(settings.logoUrl);
   const [orgName, setOrgName] = useState<string>(settings.orgName);
   const [themeColor, setThemeColor] = useState<ThemeColor>(settings.themeColor);
-  const [adminPin, setAdminPin] = useState<string>(settings.adminPin || '1234');
   const [isSavedNotice, setIsSavedNotice] = useState(false);
 
   if (!isOpen) return null;
@@ -67,7 +66,6 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
       logoUrl,
       orgName,
       themeColor,
-      adminPin: adminPin.trim() || '1234',
     });
     setIsSavedNotice(true);
     setTimeout(() => {
@@ -224,26 +222,6 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
             </div>
           </div>
 
-          <hr className="border-slate-200" />
-
-          {/* Section 4: Admin PIN Security */}
-          <div className="space-y-3">
-            <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 uppercase tracking-wider">
-              <Lock className="w-4 h-4 text-pink-600" />
-              <span>4. รหัส PIN สำหรับเข้าสู่ระบบหลังบ้าน (Admin PIN)</span>
-            </label>
-            <p className="text-xs text-slate-500">
-              รหัสผ่านสำหรับเข้าสู่หน้าบริหารจัดการและรายงาน ป้องกันพนักงานเข้าถึงโดยไม่ได้รับอนุญาต
-            </p>
-            <input
-              type="text"
-              value={adminPin}
-              onChange={(e) => setAdminPin(e.target.value)}
-              placeholder="ระบุ PIN เช่น 1234..."
-              maxLength={8}
-              className="w-full max-w-xs bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-pink-500"
-            />
-          </div>
         </div>
 
         {/* Footer */}

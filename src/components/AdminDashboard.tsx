@@ -9,6 +9,7 @@ import { OrderReconciliation } from './OrderReconciliation';
 import { TopPerformers } from './TopPerformers';
 import { CounterManagementModal } from './CounterManagementModal';
 import { SystemSettingsModal } from './SystemSettingsModal';
+import { ChangePasswordModal } from './ChangePasswordModal';
 import { THEMES } from '../constants/theme';
 import { DEFAULT_BRANCHES } from '../constants/ratingOptions';
 import { useFirestoreStatus } from '../hooks/useFirestoreStatus';
@@ -30,6 +31,7 @@ import {
   WifiOff,
   Globe,
   Trophy,
+  KeyRound,
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -68,6 +70,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [selectedBranch, setSelectedBranch] = useState<string>(branchFilter || 'all');
   const [isCounterModalOpen, setIsCounterModalOpen] = useState(false);
   const [isSystemSettingsOpen, setIsSystemSettingsOpen] = useState(false);
+  const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
@@ -250,6 +253,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             )}
 
             <button
+              onClick={() => setIsPasswordOpen(true)}
+              className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-medium border border-slate-700 transition"
+              title="เปลี่ยนรหัสผ่านสำหรับเข้าหลังบ้าน"
+            >
+              <KeyRound className="w-4 h-4 text-pink-400" />
+              <span>เปลี่ยนรหัสผ่าน</span>
+            </button>
+
+            <button
               onClick={() => setIsCounterModalOpen(true)}
               className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-medium border border-slate-700 transition"
             >
@@ -391,6 +403,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         settings={settings}
         onSaveCounters={onSaveCounters}
         branchFilter={branchFilter}
+      />
+
+      <ChangePasswordModal
+        isOpen={isPasswordOpen}
+        onClose={() => setIsPasswordOpen(false)}
+        settings={settings}
+        onSaveSettings={onSaveSettings}
       />
 
       {/* Modal System Settings */}
