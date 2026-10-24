@@ -401,12 +401,6 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
                       <span className="text-slate-300">{t('เลขออเดอร์/ใบเสร็จ:', 'Order No:')}</span>
                       <strong className="font-mono text-pink-300">{orderNumber}</strong>
                     </span>
-                    {urlCashierName && (
-                      <span className="flex items-center gap-1.5">
-                        <span className="text-slate-300">{t('พนักงาน:', 'Staff:')}</span>
-                        <strong className="text-white">{urlCashierName}</strong>
-                      </span>
-                    )}
                     <Lock className="w-3.5 h-3.5 text-slate-500" aria-label={t('ล็อกไว้', 'Locked')} />
                   </div>
                 ) : (
