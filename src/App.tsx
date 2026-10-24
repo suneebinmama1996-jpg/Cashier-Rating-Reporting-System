@@ -81,7 +81,24 @@ export default function App() {
   }, [branchFilter, counterFilter]);
 
   // URL Auth Bypass Logic
-  const isBranchAdminLink = (branchFilter && branchFilter !== 'all') || counterFilter;
+  // The back office opens only after the password was entered in this browser tab.
+  // Branch links and typing #admin no longer skip it.
+  const UNLOCK_KEY = 'nuh_admin_unlocked';
+  const isUnlocked = () => {
+    try {
+      return sessionStorage.getItem(UNLOCK_KEY) === '1';
+    } catch {
+      return false;
+    }
+  };
+  const setUnlocked = (on: boolean) => {
+    try {
+      if (on) sessionStorage.setItem(UNLOCK_KEY, '1');
+      else sessionStorage.removeItem(UNLOCK_KEY);
+    } catch {
+      /* private mode: password is asked again next time */
+    }
+  };
 
   // Sync hash with view mode
   useEffect(() => {
@@ -91,7 +108,11 @@ export default function App() {
       if (isCustomerLink()) {
         setViewMode('kiosk');
       } else if (hash.startsWith('#admin')) {
-        setViewMode('admin');
+        if (isUnlocked()) setViewMode('admin');
+        else {
+          setViewMode('kiosk');
+          setIsPinModalOpen(true);
+        }
       } else if (hash.startsWith('#links')) {
         setViewMode('generator');
       } else {
@@ -105,6 +126,7 @@ export default function App() {
   }, []);
 
   const backToKiosk = () => {
+    setUnlocked(false);
     setViewMode('kiosk');
     window.location.hash = 'kiosk';
   };
@@ -330,7 +352,7 @@ export default function App() {
           onNewRatingSubmitted={handleNewRatingSubmitted}
           usedOrders={usedOrders}
           onOpenAdmin={() => {
-            if (isBranchAdminLink) {
+            if (isUnlocked()) {
               setViewMode('admin');
               window.location.hash = 'admin';
             } else {
@@ -379,6 +401,7 @@ export default function App() {
         settings={settings}
         onSuccess={() => {
           setIsPinModalOpen(false);
+          setUnlocked(true);
           setViewMode('admin');
           window.location.hash = 'admin';
         }}
