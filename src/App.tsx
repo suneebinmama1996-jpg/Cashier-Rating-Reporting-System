@@ -28,6 +28,7 @@ import {
   recordMatchesBranch,
 } from './utils/storage';
 import { RefreshCw } from 'lucide-react';
+import { isCustomerLink } from './utils/linkParams';
 
 export default function App() {
   // 1. Initial State from URL
@@ -86,7 +87,10 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.toLowerCase();
-      if (hash.startsWith('#admin')) {
+      // A customer's online link only ever shows the rating screen
+      if (isCustomerLink()) {
+        setViewMode('kiosk');
+      } else if (hash.startsWith('#admin')) {
         setViewMode('admin');
       } else if (hash.startsWith('#links')) {
         setViewMode('generator');
