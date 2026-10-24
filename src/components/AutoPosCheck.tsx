@@ -9,7 +9,7 @@ import { BRANCH_TH } from '../utils/cashiers';
  * bill date/time only). Bills are counted by ship date and a rating is compared
  * with the ship time (bill time when the order file has no ship time).
  */
-const POS_API = 'https://worker.nuhinternational-center.workers.dev/api/doc?p=posindex/';
+const POS_API = 'https://nuhinter.nuhinternational-center.workers.dev/api/posindex/';
 const BRANCH_CODES = Array.from({ length: 12 }, (_, i) => 'b' + (i + 1));
 const LATE_MIN = 5;
 const BURST_S = 20;
