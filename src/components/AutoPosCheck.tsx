@@ -17,14 +17,14 @@ const CLOCK_MIN = 2;
 const SKEW_MS = 60000;
 const BKK_MS = 7 * 3600e3;
 
-type Bill = { n: string; day: string; ms: number | null; kind: 'ship' | 'bill' };
-type PosBranch = { code: string; label: string; bills: Map<string, Bill>; at?: string };
-type Flag = { text: string; high: boolean };
-type Flagged = { code: string; r: RatingRecord; t: number; day: string; bill?: Bill; flags: Flag[] };
+export type Bill = { n: string; day: string; ms: number | null; kind: 'ship' | 'bill' };
+export type PosBranch = { code: string; label: string; bills: Map<string, Bill>; at?: string };
+export type Flag = { text: string; high: boolean };
+export type Flagged = { code: string; r: RatingRecord; t: number; day: string; bill?: Bill; flags: Flag[] };
 
-const dayOf = (ms: number) => new Date(ms + BKK_MS).toISOString().slice(0, 10);
+export const dayOf = (ms: number) => new Date(ms + BKK_MS).toISOString().slice(0, 10);
 const hms = (ms: number) => new Date(ms + BKK_MS).toISOString().slice(11, 19);
-const shift = (iso: string, n: number) => {
+export const shift = (iso: string, n: number) => {
   const d = new Date(iso + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
@@ -34,7 +34,7 @@ const daysBetween = (a: string, b: string) => {
   for (let d = a; d <= b && out.length < 370; d = shift(d, 1)) out.push(d);
   return out;
 };
-const thai = (iso: string) => {
+export const thai = (iso: string) => {
   const [y, m, d] = iso.split('-').map(Number);
   return `${d}/${m}/${y + 543}`;
 };
@@ -54,7 +54,7 @@ const billKey = (s?: string) => {
   return m ? m[1] : n;
 };
 
-function branchOfRating(r: RatingRecord, branches: PosBranch[]): string | null {
+export function branchOfRating(r: RatingRecord, branches: PosBranch[]): string | null {
   const s = String(r.branchName || r.counterName || '').toUpperCase();
   for (const b of branches) {
     const en = BRANCH_TH[b.label];
@@ -63,7 +63,7 @@ function branchOfRating(r: RatingRecord, branches: PosBranch[]): string | null {
   return null;
 }
 
-async function loadPosIndex(): Promise<PosBranch[]> {
+export async function loadPosIndex(): Promise<PosBranch[]> {
   const res = await Promise.all(
     BRANCH_CODES.map(async (code) => {
       const r = await fetch(POS_API + code, { cache: 'no-store' });
@@ -90,10 +90,127 @@ interface Props {
 
 const squash = (s: string) => s.toUpperCase().replace(/\s+/g, '');
 // Does a POS branch (Thai label from the closing report) match the branch picked in the survey?
-function posBranchMatches(b: PosBranch, picked?: string): boolean {
+export function posBranchMatches(b: PosBranch, picked?: string): boolean {
   if (!picked || picked === 'all') return true;
   const p = squash(picked), en = BRANCH_TH[b.label];
   return (!!en && p.includes(squash(en))) || p.includes(squash(b.label));
+}
+
+/** Ratings vs POS bills for one date range: per-branch coverage, per-day totals and suspicious ratings. */
+export function analyzePos(pos: PosBranch[], ratings: RatingRecord[], from: string, to: string, branch?: string) {
+  const days = daysBetween(from, to);
+  const inRange = (d: string) => d >= from && d <= to;
+  const list = ratings.filter((r) => {
+    if (r.voided) return false;
+    const t = Date.parse(r.timestamp);
+    return !isNaN(t) && inRange(dayOf(t));
+  });
+  const allBills = new Map<string, string>();
+  pos.forEach((b) => b.bills.forEach((_, k) => allBills.set(k, b.code)));
+  const cnt = new Map<string, number>();
+  const sameSec = new Map<string, string | false>();
+  list.forEach((r) => {
+    const k = billKey(r.orderNumber);
+    if (!k) return;
+    cnt.set(k, (cnt.get(k) || 0) + 1);
+    const ts = String(r.timestamp).slice(0, 19);
+    sameSec.set(k, sameSec.has(k) ? (sameSec.get(k) === ts ? ts : false) : ts);
+  });
+  // Burst: 3+ ratings within BURST_S seconds on one counter or device (exact same-second duplicates count once)
+  const seen = new Set<string>();
+  const uniq = list.filter((r) => {
+    const k = billKey(r.orderNumber) + '|' + String(r.timestamp).slice(0, 19) + '|' + r.counterId;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  const groups = new Map<string, RatingRecord[]>();
+  uniq.forEach((r) =>
+    ['c:' + r.counterId].concat(r.deviceId ? ['d:' + r.deviceId] : []).forEach((g) => {
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g)!.push(r);
+    })
+  );
+  const burst = new Map<string, number>();
+  groups.forEach((L) => {
+    const s = L.map((r) => ({ r, t: Date.parse(r.timestamp) })).sort((a, b) => a.t - b.t);
+    let st = 0;
+    for (let i = 1; i <= s.length; i++)
+      if (i === s.length || s[i].t - s[i - 1].t > BURST_S * 1000) {
+        const n = i - st;
+        if (n >= 3) for (let j = st; j < i; j++) burst.set(s[j].r.id, Math.max(burst.get(s[j].r.id) || 0, n));
+        st = i;
+      }
+  });
+
+  const perDay: Record<string, { bills: number; rated: number; ratings: number; flag: number; noData: number }> = {};
+  days.forEach((d) => (perDay[d] = { bills: 0, rated: 0, ratings: 0, flag: 0, noData: 0 }));
+  const flagged: Flagged[] = [];
+  const rows: { code: string; label: string; bills: number; ratings: number; rated: number; missing: { k: string; day: string }[]; flag: number; daysWith: number }[] = [];
+  const byBranch = new Map<string, RatingRecord[]>();
+  let other = 0;
+  list.forEach((r) => {
+    const c = branchOfRating(r, pos);
+    if (!c) return void other++;
+    if (!byBranch.has(c)) byBranch.set(c, []);
+    byBranch.get(c)!.push(r);
+  });
+
+  pos.forEach((b) => {
+    if (!posBranchMatches(b, branch)) return;
+    const mine = byBranch.get(b.code) || [];
+    const rangeBills = new Map<string, Bill>();
+    b.bills.forEach((v, k) => inRange(v.day) && rangeBills.set(k, v));
+    if (!mine.length && !rangeBills.size) return;
+    const hasDay = new Set<string>();
+    rangeBills.forEach((v) => hasDay.add(v.day));
+    const digital = b.label === 'ดิจิตอล';
+    const rated = new Set<string>();
+    let flagN = 0;
+    mine.forEach((r) => {
+      const k = billKey(r.orderNumber);
+      const t = Date.parse(r.timestamp);
+      const day = dayOf(t);
+      const bill = k ? b.bills.get(k) : undefined;
+      const fl: Flag[] = [];
+      if (perDay[day]) perDay[day].ratings++;
+      if (bill && inRange(bill.day)) rated.add(k);
+      if (!k) fl.push({ text: 'ไม่มีเลขบิล', high: false });
+      else if (!bill && hasDay.has(day))
+        fl.push({ text: allBills.has(k) ? `บิลเป็นของสาขา${pos.find((x) => x.code === allBills.get(k))?.label}` : 'ไม่พบบิลนี้ใน POS', high: true });
+      if ((cnt.get(k) || 0) > 1)
+        fl.push(sameSec.get(k) ? { text: `บันทึกซ้ำ ${cnt.get(k)} ใบในวินาทีเดียวกัน`, high: false } : { text: `เลขบิลซ้ำ ${cnt.get(k)} ใบ`, high: true });
+      if (bill && !digital && bill.ms != null) {
+        const df = t - bill.ms;
+        const w = bill.kind === 'ship' ? 'จัดส่ง' : 'ออกบิล';
+        if (df < -SKEW_MS) fl.push({ text: `ประเมินก่อน${w} ${dur(df)}`, high: true });
+        else if (df > LATE_MIN * 60000) fl.push({ text: `ประเมินหลัง${w} ${dur(df)}`, high: true });
+      }
+      if (burst.get(r.id)) fl.push({ text: `กดรัว ${burst.get(r.id)} ใบ ห่างกันไม่เกิน ${BURST_S} วินาที`, high: true });
+      const srv = Date.parse(r.serverTime || '');
+      if (!isNaN(srv) && Math.abs(srv - t) > CLOCK_MIN * 60000)
+        fl.push({ text: srv > t ? `ขึ้นระบบช้ากว่าเวลาที่บันทึก ${dur(srv - t)}` : `เวลาเครื่องเร็วกว่าเซิร์ฟเวอร์ ${dur(srv - t)}`, high: true });
+      if (fl.length) {
+        flagged.push({ code: b.code, r, t, day, bill, flags: fl });
+        flagN++;
+        if (perDay[day]) perDay[day].flag++;
+      }
+    });
+    const missing: { k: string; day: string }[] = [];
+    rangeBills.forEach((v, k) => {
+      const P = perDay[v.day];
+      if (P) {
+        P.bills++;
+        if (rated.has(k)) P.rated++;
+      }
+      if (!rated.has(k)) missing.push({ k, day: v.day });
+    });
+    missing.sort((a, c) => a.day.localeCompare(c.day) || a.k.localeCompare(c.k));
+    days.forEach((d) => !hasDay.has(d) && perDay[d].noData++);
+    rows.push({ code: b.code, label: b.label, bills: rangeBills.size, ratings: mine.length, rated: rated.size, missing, flag: flagN, daysWith: hasDay.size });
+  });
+  flagged.sort((a, b) => a.t - b.t);
+  return { days, perDay, rows, flagged, other, total: list.length, nBr: rows.length, byBranch };
 }
 
 export const AutoPosCheck: React.FC<Props> = ({ ratings, branch }) => {
@@ -127,122 +244,7 @@ export const AutoPosCheck: React.FC<Props> = ({ ratings, branch }) => {
     setTo(t);
   };
 
-  const A = useMemo(() => {
-    if (!pos) return null;
-    const days = daysBetween(from, to);
-    const inRange = (d: string) => d >= from && d <= to;
-    const list = ratings.filter((r) => {
-      if (r.voided) return false;
-      const t = Date.parse(r.timestamp);
-      return !isNaN(t) && inRange(dayOf(t));
-    });
-    const allBills = new Map<string, string>();
-    pos.forEach((b) => b.bills.forEach((_, k) => allBills.set(k, b.code)));
-    const cnt = new Map<string, number>();
-    const sameSec = new Map<string, string | false>();
-    list.forEach((r) => {
-      const k = billKey(r.orderNumber);
-      if (!k) return;
-      cnt.set(k, (cnt.get(k) || 0) + 1);
-      const ts = String(r.timestamp).slice(0, 19);
-      sameSec.set(k, sameSec.has(k) ? (sameSec.get(k) === ts ? ts : false) : ts);
-    });
-    // Burst: 3+ ratings within BURST_S seconds on one counter or device (exact same-second duplicates count once)
-    const seen = new Set<string>();
-    const uniq = list.filter((r) => {
-      const k = billKey(r.orderNumber) + '|' + String(r.timestamp).slice(0, 19) + '|' + r.counterId;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
-    const groups = new Map<string, RatingRecord[]>();
-    uniq.forEach((r) =>
-      ['c:' + r.counterId].concat(r.deviceId ? ['d:' + r.deviceId] : []).forEach((g) => {
-        if (!groups.has(g)) groups.set(g, []);
-        groups.get(g)!.push(r);
-      })
-    );
-    const burst = new Map<string, number>();
-    groups.forEach((L) => {
-      const s = L.map((r) => ({ r, t: Date.parse(r.timestamp) })).sort((a, b) => a.t - b.t);
-      let st = 0;
-      for (let i = 1; i <= s.length; i++)
-        if (i === s.length || s[i].t - s[i - 1].t > BURST_S * 1000) {
-          const n = i - st;
-          if (n >= 3) for (let j = st; j < i; j++) burst.set(s[j].r.id, Math.max(burst.get(s[j].r.id) || 0, n));
-          st = i;
-        }
-    });
-
-    const perDay: Record<string, { bills: number; rated: number; ratings: number; flag: number; noData: number }> = {};
-    days.forEach((d) => (perDay[d] = { bills: 0, rated: 0, ratings: 0, flag: 0, noData: 0 }));
-    const flagged: Flagged[] = [];
-    const rows: { code: string; label: string; bills: number; ratings: number; rated: number; missing: { k: string; day: string }[]; flag: number; daysWith: number }[] = [];
-    const byBranch = new Map<string, RatingRecord[]>();
-    let other = 0;
-    list.forEach((r) => {
-      const c = branchOfRating(r, pos);
-      if (!c) return void other++;
-      if (!byBranch.has(c)) byBranch.set(c, []);
-      byBranch.get(c)!.push(r);
-    });
-
-    pos.forEach((b) => {
-      if (!posBranchMatches(b, branch)) return;
-      const mine = byBranch.get(b.code) || [];
-      const rangeBills = new Map<string, Bill>();
-      b.bills.forEach((v, k) => inRange(v.day) && rangeBills.set(k, v));
-      if (!mine.length && !rangeBills.size) return;
-      const hasDay = new Set<string>();
-      rangeBills.forEach((v) => hasDay.add(v.day));
-      const digital = b.label === 'ดิจิตอล';
-      const rated = new Set<string>();
-      let flagN = 0;
-      mine.forEach((r) => {
-        const k = billKey(r.orderNumber);
-        const t = Date.parse(r.timestamp);
-        const day = dayOf(t);
-        const bill = k ? b.bills.get(k) : undefined;
-        const fl: Flag[] = [];
-        if (perDay[day]) perDay[day].ratings++;
-        if (bill && inRange(bill.day)) rated.add(k);
-        if (!k) fl.push({ text: 'ไม่มีเลขบิล', high: false });
-        else if (!bill && hasDay.has(day))
-          fl.push({ text: allBills.has(k) ? `บิลเป็นของสาขา${pos.find((x) => x.code === allBills.get(k))?.label}` : 'ไม่พบบิลนี้ใน POS', high: true });
-        if ((cnt.get(k) || 0) > 1)
-          fl.push(sameSec.get(k) ? { text: `บันทึกซ้ำ ${cnt.get(k)} ใบในวินาทีเดียวกัน`, high: false } : { text: `เลขบิลซ้ำ ${cnt.get(k)} ใบ`, high: true });
-        if (bill && !digital && bill.ms != null) {
-          const df = t - bill.ms;
-          const w = bill.kind === 'ship' ? 'จัดส่ง' : 'ออกบิล';
-          if (df < -SKEW_MS) fl.push({ text: `ประเมินก่อน${w} ${dur(df)}`, high: true });
-          else if (df > LATE_MIN * 60000) fl.push({ text: `ประเมินหลัง${w} ${dur(df)}`, high: true });
-        }
-        if (burst.get(r.id)) fl.push({ text: `กดรัว ${burst.get(r.id)} ใบ ห่างกันไม่เกิน ${BURST_S} วินาที`, high: true });
-        const srv = Date.parse(r.serverTime || '');
-        if (!isNaN(srv) && Math.abs(srv - t) > CLOCK_MIN * 60000)
-          fl.push({ text: srv > t ? `ขึ้นระบบช้ากว่าเวลาที่บันทึก ${dur(srv - t)}` : `เวลาเครื่องเร็วกว่าเซิร์ฟเวอร์ ${dur(srv - t)}`, high: true });
-        if (fl.length) {
-          flagged.push({ code: b.code, r, t, day, bill, flags: fl });
-          flagN++;
-          if (perDay[day]) perDay[day].flag++;
-        }
-      });
-      const missing: { k: string; day: string }[] = [];
-      rangeBills.forEach((v, k) => {
-        const P = perDay[v.day];
-        if (P) {
-          P.bills++;
-          if (rated.has(k)) P.rated++;
-        }
-        if (!rated.has(k)) missing.push({ k, day: v.day });
-      });
-      missing.sort((a, c) => a.day.localeCompare(c.day) || a.k.localeCompare(c.k));
-      days.forEach((d) => !hasDay.has(d) && perDay[d].noData++);
-      rows.push({ code: b.code, label: b.label, bills: rangeBills.size, ratings: mine.length, rated: rated.size, missing, flag: flagN, daysWith: hasDay.size });
-    });
-    flagged.sort((a, b) => a.t - b.t);
-    return { days, perDay, rows, flagged, other, total: list.length, nBr: rows.length };
-  }, [pos, ratings, from, to, branch]);
+  const A = useMemo(() => (pos ? analyzePos(pos, ratings, from, to, branch) : null), [pos, ratings, from, to, branch]);
 
   const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) + '%' : '–');
   const one = from === to;

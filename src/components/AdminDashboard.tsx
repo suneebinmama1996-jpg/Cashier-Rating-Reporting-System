@@ -6,6 +6,7 @@ import { MonthlyReportGraph } from './MonthlyReportGraph';
 import { CounterReport } from './CounterReport';
 import { RawDataLog } from './RawDataLog';
 import { OrderReconciliation } from './OrderReconciliation';
+import { TopPerformers } from './TopPerformers';
 import { CounterManagementModal } from './CounterManagementModal';
 import { SystemSettingsModal } from './SystemSettingsModal';
 import { THEMES } from '../constants/theme';
@@ -28,6 +29,7 @@ import {
   Wifi,
   WifiOff,
   Globe,
+  Trophy,
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -61,7 +63,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onClearData,
   onRefreshRatings,
 }) => {
-  const [activeTab, setActiveTab] = useState<'daily' | 'monthly' | 'counter' | 'reconcile' | 'raw'>('daily');
+  const [activeTab, setActiveTab] = useState<'daily' | 'monthly' | 'counter' | 'top' | 'reconcile' | 'raw'>('daily');
   // If branchFilter is present, default to it and disable changing
   const [selectedBranch, setSelectedBranch] = useState<string>(branchFilter || 'all');
   const [isCounterModalOpen, setIsCounterModalOpen] = useState(false);
@@ -315,6 +317,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </button>
 
             <button
+              onClick={() => setActiveTab('top')}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
+                activeTab === 'top'
+                  ? `${theme.primaryBg} text-white shadow-sm`
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Trophy className="w-4 h-4 text-amber-400" />
+              <span>สาขา / พนักงานดีเด่น</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('reconcile')}
               className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
                 activeTab === 'reconcile'
@@ -346,6 +360,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {activeTab === 'daily' && <DailyReportGraph ratings={filteredRatings} counters={filteredCounters} />}
         {activeTab === 'monthly' && <MonthlyReportGraph ratings={filteredRatings} counters={filteredCounters} />}
         {activeTab === 'counter' && <CounterReport ratings={filteredRatings} counters={filteredCounters} />}
+        {activeTab === 'top' && <TopPerformers ratings={filteredRatings} branch={selectedBranch} />}
         {activeTab === 'reconcile' && (
           <OrderReconciliation
             ratings={filteredRatings}
