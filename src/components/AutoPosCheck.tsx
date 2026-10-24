@@ -48,7 +48,7 @@ const dur = (ms: number) => {
   const m = Math.abs(ms) / 60000;
   return m < 60 ? `${Math.round(m)} นาที` : m < 2880 ? `${(m / 60).toFixed(1)} ชม.` : `${Math.round(m / 1440)} วัน`;
 };
-const billKey = (s?: string) => {
+export const billKey = (s?: string) => {
   const n = String(s || '').trim().replace(/^JST\s*/i, '').replace(/^#/, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const m = /^[A-Z]{0,2}(\d{5,9})$/.exec(n);
   return m ? m[1] : n;
