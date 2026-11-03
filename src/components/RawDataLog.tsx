@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { RatingRecord, Counter, RatingLevel } from '../types';
-import { formatThaiDate, exportRatingsToCSV, deleteRatingRecord, normalizeDate, recordMatchesBranch, isRecordInDateRange, cleanStr } from '../utils/storage';
+import { formatThaiDate, exportRatingsToCSV, deleteRatingRecord, normalizeDate, recordMatchesBranch, isRecordInDateRange, cleanStr, MAX_RATINGS_PER_BILL } from '../utils/storage';
 import { RATING_OPTIONS } from '../constants/ratingOptions';
 import { Download, Search, Filter, RefreshCw, Trash2, FileSpreadsheet, X, Clock, AlertTriangle } from 'lucide-react';
 
@@ -271,7 +271,7 @@ export const RawDataLog: React.FC<RawDataLogProps> = ({
               {paginated.length > 0 ? (
                 paginated.map((r) => {
                   const opt = getOptionByLevel(r.level);
-                  const isDuplicate = r.orderNumber && (orderFrequencies.get(r.orderNumber.trim().toUpperCase()) || 0) > 1;
+                  const isDuplicate = r.orderNumber && (orderFrequencies.get(r.orderNumber.trim().toUpperCase()) || 0) > MAX_RATINGS_PER_BILL;
                   
                   return (
                     <tr key={r.id} className={`hover:bg-slate-50 transition ${isDuplicate ? 'bg-rose-100/50' : ''}`}>

@@ -260,15 +260,15 @@ export default function App() {
     setActiveCounterId(id);
   };
 
-  // POS numbers that already have a rating, so the kiosk can refuse a second one
+  // How many ratings each POS number already has, so the kiosk can refuse one past the limit
   const usedOrders = useMemo(() => {
-    const set = new Set<string>();
+    const map = new Map<string, number>();
     ratings.forEach((r) => {
       if (r.voided) return;
       const k = normalizeOrderNumber(r.orderNumber);
-      if (k) set.add(k);
+      if (k) map.set(k, (map.get(k) || 0) + 1);
     });
-    return set;
+    return map;
   }, [ratings]);
 
   const handleNewRatingSubmitted = async (newRatingData: RatingRecord) => {

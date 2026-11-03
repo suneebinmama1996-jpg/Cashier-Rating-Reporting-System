@@ -115,7 +115,7 @@ export interface RatingCheckContext {
   posLoaded: boolean; // a POS list was imported
   inPos: boolean; // this rating's order number is in that list
   posTimeMs?: number; // bill time of the matching order
-  isDuplicate: boolean; // order number used by more than one rating
+  isDuplicate: boolean; // order number rated more times than allowed
   burstSize?: number;
 }
 

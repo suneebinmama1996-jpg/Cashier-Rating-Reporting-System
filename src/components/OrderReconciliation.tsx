@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { RatingRecord, Counter, SystemSettings, POSReconciliation } from '../types';
 import { THEMES } from '../constants/theme';
-import { saveReconciliationRecord, formatThaiDate, recordMatchesBranch, matchesBranch, isRecordInDateRange } from '../utils/storage';
+import { saveReconciliationRecord, formatThaiDate, recordMatchesBranch, matchesBranch, isRecordInDateRange, MAX_RATINGS_PER_BILL } from '../utils/storage';
 import { checkRating, findBursts, parsePosTime, IntegrityFlag, DEFAULT_INTEGRITY_OPTIONS } from '../utils/integrity';
 import {
   Upload,
@@ -395,7 +395,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
           posLoaded,
           inPos: !!key && posSet.has(key),
           posTimeMs: key ? posTimeMs.get(key) : undefined,
-          isDuplicate: !!key && (orderCount.get(key) || 0) > 1,
+          isDuplicate: !!key && (orderCount.get(key) || 0) > MAX_RATINGS_PER_BILL,
           burstSize: bursts.get(r.id),
         },
         opts
@@ -415,7 +415,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
   const tableRows = useMemo(() => {
     if (posOrdersList.length === 0) return [];
 
-    // Duplicate = the same order number was rated more than once in the system,
+    // Duplicate = the same order number was rated more than MAX_RATINGS_PER_BILL times,
     // or appears more than once in the imported POS list. (Being rated once AND
     // being in the POS list is the normal case, not a duplicate.)
     const ratingCount = new Map<string, number>();
@@ -432,7 +432,7 @@ export const OrderReconciliation: React.FC<OrderReconciliationProps> = ({
     });
     const isDup = (order: string) => {
       const key = order.trim().toUpperCase();
-      return (ratingCount.get(key) || 0) > 1 || (posCount.get(key) || 0) > 1;
+      return (ratingCount.get(key) || 0) > MAX_RATINGS_PER_BILL || (posCount.get(key) || 0) > 1;
     };
 
     let rows: {

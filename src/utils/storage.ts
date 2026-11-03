@@ -468,6 +468,9 @@ export function getStoredRatings(): RatingRecord[] {
   }
 }
 
+// One POS number may be rated (saved) at most this many times; the next one is refused
+export const MAX_RATINGS_PER_BILL = 2;
+
 // POS number in one comparable form: no spaces or dashes, upper case
 export function normalizeOrderNumber(s?: string): string {
   return (s || '').trim().toUpperCase().replace(/[\s-]/g, '');
