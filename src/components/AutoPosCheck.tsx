@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Zap, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { RatingRecord } from '../types';
 import { BRANCH_TH } from '../utils/cashiers';
+import { MAX_RATINGS_PER_BILL } from '../utils/storage';
 
 /*
  * Automatic cross-check of ratings against POS bills from the closing report.
@@ -178,7 +179,7 @@ export function analyzePos(pos: PosBranch[], ratings: RatingRecord[], from: stri
       if (!k) fl.push({ text: 'ไม่มีเลขบิล', high: false });
       else if (!bill && hasDay.has(day))
         fl.push({ text: allBills.has(k) ? `บิลเป็นของสาขา${pos.find((x) => x.code === allBills.get(k))?.label}` : 'ไม่พบบิลนี้ใน POS', high: true });
-      if ((cnt.get(k) || 0) > 1)
+      if ((cnt.get(k) || 0) > MAX_RATINGS_PER_BILL)
         fl.push(sameSec.get(k) ? { text: `บันทึกซ้ำ ${cnt.get(k)} ใบในวินาทีเดียวกัน`, high: false } : { text: `เลขบิลซ้ำ ${cnt.get(k)} ใบ`, high: true });
       if (bill && !digital && bill.ms != null) {
         const df = t - bill.ms;

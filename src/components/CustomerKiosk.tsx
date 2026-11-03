@@ -5,7 +5,7 @@ import { RATING_OPTIONS } from '../constants/ratingOptions';
 import { RatingOption, Counter, RatingRecord, SystemSettings } from '../types';
 import { THEMES } from '../constants/theme';
 import { soundManager } from '../utils/sound';
-import { getDeviceId, normalizeOrderNumber } from '../utils/storage';
+import { getDeviceId, normalizeOrderNumber, MAX_RATINGS_PER_BILL } from '../utils/storage';
 import { AlertTriangle, Heart, ThumbsUp, Sparkles, CheckCircle2, Volume2, VolumeX, Store, Receipt, Lock, Maximize, Minimize, Camera, Globe } from 'lucide-react';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { CashierPicker } from './CashierPicker';
@@ -21,7 +21,7 @@ interface CustomerKioskProps {
   onNewRatingSubmitted: (rating: RatingRecord) => void;
   onOpenAdmin?: () => void;
   onOpenShareModal?: () => void;
-  usedOrders?: Set<string>; // POS numbers that already have a rating
+  usedOrders?: Map<string, number>; // ratings already saved per POS number
 }
 
 const CASHIER_KEY = 'kiosk_selected_cashier_v1';
@@ -90,12 +90,14 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
   // A remembered name that was later removed from the list no longer counts
   const effectiveCashier = urlCashierName || (cashierList.length ? (cashierList.some((c) => c.name === cashier) ? cashier : '') : cashier.trim());
   const orderKey = normalizeOrderNumber(orderNumber);
-  const isDuplicateOrder = !!orderKey && !!usedOrders && usedOrders.has(orderKey);
   const t = (th: string, en: string) => (language === 'th' ? th : en);
+  const usedCount = (orderKey && usedOrders?.get(orderKey)) || 0;
+  const isDuplicateOrder = usedCount >= MAX_RATINGS_PER_BILL;
+  const dupMsg = t(`เลข POS ${orderNumber.trim()} ประเมินครบ ${MAX_RATINGS_PER_BILL} ครั้งแล้ว บันทึกซ้ำไม่ได้`, `POS ${orderNumber.trim()} has already been rated ${MAX_RATINGS_PER_BILL} times`);
   const blockReason = !orderKey
     ? t('กรุณาใส่เลข POS ก่อนประเมิน', 'Please enter the POS number first')
     : isDuplicateOrder
-      ? t(`เลข POS ${orderNumber.trim()} ประเมินไปแล้ว บันทึกซ้ำไม่ได้`, `POS ${orderNumber.trim()} has already been rated`)
+      ? dupMsg
       : !effectiveCashier
         ? t('กรุณาเลือกชื่อแคชเชียร์ก่อนประเมิน', 'Please choose the cashier first')
         : '';
@@ -441,10 +443,17 @@ export const CustomerKiosk: React.FC<CustomerKioskProps> = ({
                   </div>
                 )}
 
+                {!isLinkMode && !notice && !isDuplicateOrder && usedCount > 0 && (
+                  <div role="status" className="flex items-center gap-2 bg-amber-50 text-amber-700 border border-amber-200 px-4 py-2 rounded-xl text-sm font-bold mb-4">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>{t(`เลข POS ${orderNumber.trim()} ประเมินแล้ว ${usedCount} ครั้ง บันทึกได้อีก ${MAX_RATINGS_PER_BILL - usedCount} ครั้ง`, `POS ${orderNumber.trim()} rated ${usedCount} time(s), ${MAX_RATINGS_PER_BILL - usedCount} left`)}</span>
+                  </div>
+                )}
+
                 {(notice || isDuplicateOrder) && (
                   <div role="alert" className="flex items-center gap-2 bg-rose-50 text-rose-700 border border-rose-200 px-4 py-2 rounded-xl text-sm font-bold mb-4">
                     <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <span>{isDuplicateOrder ? t(`เลข POS ${orderNumber.trim()} ประเมินไปแล้ว บันทึกซ้ำไม่ได้`, `POS ${orderNumber.trim()} has already been rated`) : notice}</span>
+                    <span>{isDuplicateOrder ? dupMsg : notice}</span>
                   </div>
                 )}
 

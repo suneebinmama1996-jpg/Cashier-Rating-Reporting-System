@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, Trophy, AlertTriangle, Info, Columns3, X } from 'lucide-react';
 import { RatingRecord } from '../types';
+import { MAX_RATINGS_PER_BILL } from '../utils/storage';
 import { analyzePos, billKey, dayOf, loadPosIndex, PosBranch, shift, thai } from './AutoPosCheck';
 
 /*
@@ -77,7 +78,7 @@ const when = (iso: string) => {
   return isNaN(t) ? iso : thai(dayOf(t)) + ' ' + new Date(t + 7 * 3600e3).toISOString().slice(11, 19);
 };
 
-// Ratings sharing one POS number: groups with 2+ ratings, and how many ratings are extra copies
+// Ratings sharing one POS number: groups over the allowed count, and how many ratings are past it
 function duplicates(list: RatingRecord[]): { groups: DupGroup[]; extra: number } {
   const m = new Map<string, RatingRecord[]>();
   list.forEach((r) => {
@@ -87,10 +88,10 @@ function duplicates(list: RatingRecord[]): { groups: DupGroup[]; extra: number }
     m.get(k)!.push(r);
   });
   const groups = [...m.entries()]
-    .filter(([, l]) => l.length > 1)
+    .filter(([, l]) => l.length > MAX_RATINGS_PER_BILL)
     .map(([pos, l]) => ({ pos, list: l.slice().sort((a, b) => a.timestamp.localeCompare(b.timestamp)) }))
     .sort((a, b) => b.list.length - a.list.length || a.pos.localeCompare(b.pos));
-  return { groups, extra: groups.reduce((s, g) => s + g.list.length - 1, 0) };
+  return { groups, extra: groups.reduce((s, g) => s + g.list.length - MAX_RATINGS_PER_BILL, 0) };
 }
 
 // Weighted score over the switched-on columns only (weights rescaled to 100)
