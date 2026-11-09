@@ -282,20 +282,14 @@ export default function App() {
     return created;
   };
 
-  const handleSaveCounters = (updatedCounters: Counter[]) => {
-    let newFullCounters = updatedCounters;
-    if (branchFilter) {
-      // Keep other branches' counters and replace this branch's counters
-      const otherBranchesCounters = counters.filter(c => c.branchName !== branchFilter);
-      newFullCounters = [...otherBranchesCounters, ...updatedCounters];
-    } else if (counterFilter) {
-      // Keep other counters and replace this specific counter
-      const originalFilteredIds = filteredCounters.map(c => c.id);
-      const unchangedCounters = counters.filter(c => !originalFilteredIds.includes(c.id));
-      newFullCounters = [...unchangedCounters, ...updatedCounters];
+  // The branch-management screen always edits the full list of branches,
+  // so it is saved as is (merging it with `counters` again duplicated branches).
+  const handleSaveCounters = async (updatedCounters: Counter[]) => {
+    setCounters(updatedCounters);
+    const ok = await saveCounters(updatedCounters);
+    if (!ok) {
+      alert('บันทึกขึ้นระบบไม่สำเร็จ ลิงก์สาขาจะยังไม่เห็นการเปลี่ยนแปลง กรุณาตรวจอินเทอร์เน็ตแล้วลองบันทึกอีกครั้ง');
     }
-    setCounters(newFullCounters);
-    saveCounters(newFullCounters);
   };
 
   const handleSaveSettings = (updated: Partial<SystemSettings>) => {

@@ -6,12 +6,12 @@ export function cashierEntries(counter?: Counter | null): CashierEntry[] {
   const out: CashierEntry[] = [];
   const seen = new Set<string>();
   (counter?.cashiers || []).forEach((c) => {
-    const e: CashierEntry = typeof c === 'string' ? { name: c } : { name: c?.name || '', code: c?.code };
-    e.name = (e.name || '').trim();
-    e.code = (e.code || '').trim() || undefined;
-    if (!e.name || seen.has(e.name)) return;
-    seen.add(e.name);
-    out.push(e);
+    const name = (typeof c === 'string' ? c : c?.name || '').trim();
+    const code = (typeof c === 'string' ? '' : c?.code || '').trim();
+    if (!name || seen.has(name)) return;
+    seen.add(name);
+    // Leave `code` out when empty: Firestore refuses fields set to undefined
+    out.push(code ? { name, code } : { name });
   });
   return out;
 }
