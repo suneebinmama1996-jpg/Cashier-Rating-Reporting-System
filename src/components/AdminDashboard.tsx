@@ -40,7 +40,7 @@ interface AdminDashboardProps {
   counters: Counter[];
   settings: SystemSettings;
   onBackToKiosk: () => void;
-  onSaveCounters: (counters: Counter[]) => void;
+  onSaveCounters: (counters: Counter[]) => Promise<boolean> | boolean | void;
   onSaveSettings: (updated: Partial<SystemSettings>) => void;
   onOpenShareModal: () => void;
   onResetData: () => void;

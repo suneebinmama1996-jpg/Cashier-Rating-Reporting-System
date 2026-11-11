@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { Counter, SystemSettings, CashierEntry } from '../types';
 import { cashierEntries, mergeCashiers, parseCashierFile, branchMatches, downloadCashierTemplate, CashierImportRow } from '../utils/cashiers';
-import { Store, Plus, Trash2, X, Building, Copy, Check, ExternalLink, Link2, UserRound, FileSpreadsheet, Upload } from 'lucide-react';
+import { Store, Plus, Trash2, X, Building, Copy, Check, ExternalLink, Link2, UserRound, FileSpreadsheet, Upload, Save, Loader2, AlertTriangle } from 'lucide-react';
 
 interface CounterManagementModalProps {
   isOpen: boolean;
   onClose: () => void;
   counters: Counter[];
   settings: SystemSettings;
-  onSaveCounters: (counters: Counter[]) => void;
+  onSaveCounters: (counters: Counter[]) => Promise<boolean> | boolean | void;
   branchFilter?: string | null;
 }
 
@@ -27,6 +27,14 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
   const [cashierDraft, setCashierDraft] = useState<Record<string, string>>({});
   const [codeDraft, setCodeDraft] = useState<Record<string, string>>({});
   const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // where the last save stands, shown next to the save button
+  const [saveState, setSaveState] = useState<{ st: 'saving' | 'ok' | 'err'; at?: number } | null>(null);
+
+  const persist = async (updated: Counter[]) => {
+    setSaveState({ st: 'saving' });
+    const res = await onSaveCounters(updated);
+    setSaveState(res === false ? { st: 'err' } : { st: 'ok', at: Date.now() });
+  };
 
   // Sync list when counters prop changes
   React.useEffect(() => {
@@ -59,7 +67,7 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
     };
     const updated = [...list, newCounter];
     setList(updated);
-    onSaveCounters(updated);
+    persist(updated);
     setNewName('');
     setRecentlyAddedBranch(trimmed);
   };
@@ -71,13 +79,13 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
     }
     const updated = list.filter((c) => c.id !== id);
     setList(updated);
-    onSaveCounters(updated);
+    persist(updated);
   };
 
   const updateCashiers = (id: string, entries: CashierEntry[]) => {
     const updated = list.map((c) => (c.id === id ? { ...c, cashiers: entries } : c));
     setList(updated);
-    onSaveCounters(updated);
+    persist(updated);
   };
 
   const handleAddCashier = (c: Counter) => {
@@ -136,7 +144,7 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
     }
     const updated = list.map((c) => (added[c.id] ? { ...c, cashiers: mergeCashiers(cashierEntries(c), added[c.id]) } : c));
     setList(updated);
-    onSaveCounters(updated);
+    persist(updated);
     const parts = ids.map((id) => `${list.find((c) => c.id === id)?.name} ${added[id].length} คน`);
     setImportMsg({ ok: true, text: `นำเข้าแล้ว: ${parts.join(', ')}` + (unmatched ? ` · ข้าม ${unmatched} แถวที่ชื่อสาขาไม่ตรง` : '') });
   };
@@ -387,7 +395,19 @@ export const CounterManagementModal: React.FC<CounterManagementModalProps> = ({
           </div>
         </div>
 
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
+        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3 shrink-0 flex-wrap">
+          <span className="mr-auto text-xs font-semibold" role="status">
+            {saveState?.st === 'saving' && <span className="text-slate-500 inline-flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> กำลังบันทึก…</span>}
+            {saveState?.st === 'ok' && <span className="text-emerald-700 inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" /> บันทึกขึ้นระบบแล้ว {new Date(saveState.at!).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.</span>}
+            {saveState?.st === 'err' && <span className="text-red-600 inline-flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> บันทึกไม่สำเร็จ กดบันทึกอีกครั้ง</span>}
+          </span>
+          <button
+            onClick={() => persist(list)}
+            disabled={saveState?.st === 'saving'}
+            className="px-5 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-xl hover:bg-emerald-700 transition inline-flex items-center gap-1.5 disabled:opacity-60"
+          >
+            <Save className="w-3.5 h-3.5" /> บันทึกข้อมูล
+          </button>
           <button
             onClick={onClose}
             className="px-5 py-2 bg-slate-900 text-white text-xs font-semibold rounded-xl hover:bg-slate-800 transition"

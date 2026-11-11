@@ -290,6 +290,7 @@ export default function App() {
     if (!ok) {
       alert('บันทึกขึ้นระบบไม่สำเร็จ ลิงก์สาขาจะยังไม่เห็นการเปลี่ยนแปลง กรุณาตรวจอินเทอร์เน็ตแล้วลองบันทึกอีกครั้ง');
     }
+    return ok;
   };
 
   const handleSaveSettings = (updated: Partial<SystemSettings>) => {
