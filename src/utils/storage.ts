@@ -597,14 +597,23 @@ export function getStoredCounters(): Counter[] {
   }
 }
 
-export function saveCounters(counters: Counter[]): void {
-  localStorage.setItem(COUNTERS_KEY, JSON.stringify(counters));
+// Firestore rejects any field set to undefined, which made the whole save fail
+// while the admin screen (reading localStorage) still showed the change.
+function stripUndefined<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
 
-  // Save to Firestore
-  const path = 'config/counters';
-  setDoc(doc(db, 'config', 'counters'), { list: counters }).catch((e) => {
+/** Saves the branch list. Resolves false if it did not reach the server. */
+export async function saveCounters(counters: Counter[]): Promise<boolean> {
+  const clean = stripUndefined(counters);
+  localStorage.setItem(COUNTERS_KEY, JSON.stringify(clean));
+  try {
+    await setDoc(doc(db, 'config', 'counters'), { list: clean });
+    return true;
+  } catch (e) {
     console.error('Firestore save counters error:', e);
-  });
+    return false;
+  }
 }
 
 export function getActiveCounterId(): string {
